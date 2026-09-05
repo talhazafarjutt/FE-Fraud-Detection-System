@@ -197,6 +197,60 @@ on anything high or critical while not blocking on these two analysed moderates.
 target starts being built from user input** — either change makes these advisories live, and the
 correct response then is to move to React Router 7.18+.
 
+### 4.5 Security review — findings and evidence
+
+A full pass over the frontend attack surface. Everything below was verified
+empirically against the built output or by mutation-testing the guardrail, not
+asserted from the code comments.
+
+**Two issues were found and fixed.**
+
+**Finding 1 — MSW service worker shipped to production (fixed).** `msw init` places
+`mockServiceWorker.js` in `public/`, which Vite copies verbatim into `dist/`. The worker was never
+*registered* in production — `worker.start()` sits behind a dead branch — but the file sat at a
+predictable path on the origin. Anyone who achieved script execution could have registered it and
+gained persistent, origin-wide interception of every request and response, surviving reloads: it
+converts a transient XSS into durable MitM. It also advertised the mocking layer.
+Fixed with a build plugin that removes it unless `VITE_USE_MSW=true`. Verified both directions: a
+production build now emits `dist/index.html` and `dist/assets/` only, while an MSW build keeps its
+worker.
+
+**Finding 2 — admin create-user password field could autofill the admin's own credential (fixed).**
+The field in `UsersPage` had no `autoComplete`, so a browser could offer the signed-in admin's saved
+password into a field that sets *another* user's credential. Now `autoComplete="new-password"`. The
+sign-in field correctly uses `current-password`; both machine-secret fields use `off`.
+
+**Checks that came back clean:**
+
+| Area | Method | Result |
+|---|---|---|
+| Secrets in the bundle | grep built `dist/` for all demo credentials, emails, client ids | None. Dead-code elimination removes the DEV blocks and the MSW import |
+| Mock code in production | grep `dist/assets/` for MSW, fixtures | Absent |
+| XSS sinks | grep for `dangerouslySetInnerHTML`, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `srcdoc`, `javascript:` | None in live code (one mention in a comment) |
+| Dynamic code execution | grep for `eval`, `new Function`, string `setTimeout` | None |
+| Client-side persistence | grep for `localStorage`, `sessionStorage`, `document.cookie`, `indexedDB` | None |
+| Token in URL / query / log | grep the api layer; audit every `console.*` | One DEV-guarded `console.error` in the error boundary, error + component stack only |
+| `Authorization` attachment points | enumerate every file mentioning it | Exactly two: `api/client.ts` and the mock backend |
+| Prototype pollution | user-controlled metadata keys reach `Object.fromEntries` — executed a probe with `__proto__` and `constructor` keys | Not exploitable: `Object.fromEntries` defines *own* properties, `Object.prototype` stays clean |
+| Open redirect | every `<Link to>` and `navigate()` target; whether router `state.from` is read | All targets are literals or UUID-validated ids; `state.from` is stored but never used as a redirect target |
+| ReDoS | every regex literal in `src/` | All bounded/linear. The one superlinear pattern was replaced with a linear digit walk and survives only in an explanatory comment |
+| Third-party requests | network panel across the whole demo path | Zero. Fonts self-hosted; the only external string is a URL in a CSS comment |
+| Production CSP | built `index.html` plus live preview-server headers | `script-src 'self'` with no `unsafe-inline`; `object-src`, `base-uri`, `frame-ancestors` all `'none'` |
+| Clickjacking | `frame-ancestors` delivery | Absent from `<meta>` (browsers ignore it there) and present as a real header |
+
+**Guardrails were proven to fire, not just configured.** A probe file using `localStorage`,
+`sessionStorage` and `dangerouslySetInnerHTML` was linted: all three violations were reported and
+the build would fail. `tests/security-invariants.test.ts` adds 13 checks for what a linter cannot
+express — secrets confined to mocks or DEV blocks, no embedded JWTs, a single `Authorization`
+attachment point, the strict production CSP, the service-worker strip, and the tree-shaken
+simulator. Each was mutation-tested: weakening the production CSP and leaking a demo credential into
+`src/lib/` both produced immediate, named failures.
+
+**Residual risk, unchanged and previously documented:** the refresh token sits in memory because the
+backend returns it in the response body (§4.2), and React Router 6.x carries two advisories that are
+not reachable in this application (§4.4). Both need a change outside this frontend to close
+properly.
+
 ### Other controls
 
 - Every API response is validated with Zod before it reaches component state.
@@ -463,8 +517,8 @@ Not verifiable against this build: an alert appearing from a submitted transacti
 cross-team alert rows (§5.4). Both work under `VITE_USE_MSW=true`.
 
 `npm run lint` — clean, zero warnings, audit gate passed. `npm run typecheck` — clean.
-`npm run test` — **52 passing** across six files: refresh mutex, alert state machine, problem+json
-parsing, IBAN/money/risk, route-target injection, and MSW fixture contract.
+`npm run test` — **65 passing** across seven files: refresh mutex, alert state machine, problem+json
+parsing, IBAN/money/risk, route-target injection, MSW fixture contract, and security invariants.
 
 ---
 

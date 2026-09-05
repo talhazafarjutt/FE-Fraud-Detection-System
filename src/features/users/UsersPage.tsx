@@ -240,7 +240,18 @@ export default function UsersPage() {
             <label htmlFor="password" className="mono-label mb-2 block text-ink-3">
               Password
             </label>
-            <input id="password" type="password" className="field" {...register('password')} />
+            {/*
+              new-password, not current-password: this field sets someone
+              else's credential, so the browser must not offer the admin's own
+              saved password here.
+            */}
+            <input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              className="field"
+              {...register('password')}
+            />
             {/* The meter reads from the same predicates the schema enforces, so
                 it can never claim a password is fine when the server will refuse it. */}
             <PasswordMeter value={password} />

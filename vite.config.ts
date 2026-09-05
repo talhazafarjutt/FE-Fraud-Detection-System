@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -50,6 +51,38 @@ function metaCsp(policy: string): string {
 }
 
 /**
+ * Keep MSW's service worker out of any build that cannot use it.
+ *
+ * `msw init` puts `mockServiceWorker.js` in `public/`, and Vite copies `public/`
+ * verbatim into `dist/`. The worker is never registered when `VITE_USE_MSW` is
+ * off — `worker.start()` sits behind a dead branch — but shipping the file
+ * still leaves a request-interception script at a predictable path on the
+ * origin. Anyone who achieves script execution could register it and gain
+ * persistent, origin-wide control of every request and response, surviving
+ * reloads: it turns a transient XSS into durable MitM. It also advertises the
+ * mocking layer to anyone who looks.
+ *
+ * Neither is acceptable in a build a government buyer deploys, so the file is
+ * removed unless the build is explicitly an MSW build.
+ */
+function dropMockWorkerPlugin(mswEnabled: boolean): Plugin {
+  return {
+    name: 'civitas-drop-mock-worker',
+    apply: 'build',
+    // publicDir is copied outside the rollup graph, so this has to run after
+    // the whole build rather than in generateBundle.
+    closeBundle() {
+      if (mswEnabled) return;
+      const target = path.resolve(__dirname, 'dist/mockServiceWorker.js');
+      if (fs.existsSync(target)) {
+        fs.rmSync(target);
+        this.warn('Removed mockServiceWorker.js from the production build.');
+      }
+    },
+  };
+}
+
+/**
  * Injects the policy into the `<!--CSP-->` placeholder in index.html. Keeping it
  * out of the static file is what lets dev and production differ without anyone
  * hand-editing a security header before a build.
@@ -71,6 +104,7 @@ export default defineConfig(({ command, mode }) => {
   const apiTarget = env['VITE_API_PROXY_TARGET'] ?? 'http://localhost:8000';
   const apiOrigin = env['VITE_API_BASE_URL'] ?? '';
   const isDev = command === 'serve';
+  const mswEnabled = env['VITE_USE_MSW'] === 'true';
 
   const devCsp = buildCsp({ apiOrigin, dev: true });
   const prodCsp = buildCsp({ apiOrigin, dev: false });
@@ -94,6 +128,7 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       cspPlugin(metaCsp(isDev ? devCsp : prodCsp)),
+      dropMockWorkerPlugin(mswEnabled),
       process.env['ANALYZE'] === 'true' &&
         visualizer({ filename: 'dist/bundle-stats.html', gzipSize: true, brotliSize: true }),
     ].filter(Boolean),
