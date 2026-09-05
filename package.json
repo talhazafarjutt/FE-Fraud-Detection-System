@@ -1,0 +1,64 @@
+{
+  "name": "civitas-fraud-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0 && npm run audit:prod",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "analyze": "ANALYZE=true vite build",
+    "audit:full": "npm audit --omit=dev"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/newsreader": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@headlessui/react": "2.2.10",
+    "@hookform/resolvers": "3.10.0",
+    "@tanstack/react-query": "5.102.8",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-hook-form": "7.87.0",
+    "react-router-dom": "6.30.6",
+    "recharts": "2.15.4",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@typescript-eslint/eslint-plugin": "8.69.0",
+    "@typescript-eslint/parser": "8.69.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "10.5.4",
+    "eslint": "8.57.1",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "eslint-plugin-security": "3.0.1",
+    "jsdom": "25.0.1",
+    "msw": "2.15.0",
+    "postcss": "8.5.28",
+    "prettier": "3.4.2",
+    "rollup-plugin-visualizer": "5.14.0",
+    "tailwindcss": "3.4.19",
+    "typescript": "5.9.3",
+    "vite": "5.4.21",
+    "vitest": "2.1.9"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}

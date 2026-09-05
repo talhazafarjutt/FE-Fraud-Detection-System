@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy is injected here by vite.config.ts so that dev and
+      production can differ: Vite's HMR client needs an inline preamble script,
+      which `script-src 'self'` correctly blocks. The production build gets the
+      strict policy with no inline allowance. See the CSP section of README.md.
+
+      `frame-ancestors` cannot be delivered via <meta> — browsers ignore it — so
+      it is sent as a real header by the dev/preview server and must be sent by
+      whatever serves the production build.
+    -->
+    <!--CSP-->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light" />
+    <title>Civitas AI — Fraud Intelligence Console</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

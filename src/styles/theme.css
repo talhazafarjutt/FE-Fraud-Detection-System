@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens lifted verbatim from https://civitasai.net (verified against
+ * the live stylesheet on 2026-09-04 — the custom-property names below are the
+ * site's own names, not our invention).
+ *
+ * The site is light-only. There is deliberately no dark mode here: a dark
+ * console next to their light marketing site reads as a different vendor.
+ * The site does, however, use inverted near-black bands as a device
+ * (`background: var(--ink)` appears 6x in its stylesheet), which is what the
+ * --on-ink-* tokens are for.
+ */
+:root {
+  /* neutrals — warm grey, NOT white */
+  --ink: #101418;
+  --ink-2: #3a444b;
+  --ink-3: #69747b;
+  --paper: #e3e6e0;
+  --surface: #f3f5f1;
+  --rule: #c4cabe;
+  --rule-soft: #d5dace;
+
+  /* brand */
+  --ultra: #22318e;
+  --ultra-lift: #2e42bc;
+
+  /* semantic accents */
+  --carmine: #9e2438;
+  --amber: #b0740f;
+  --sage: #4c6e5c;
+
+  /* on-dark — for the inverted bands the site uses */
+  --ink-line: #2a3238;
+  --on-ink: #f3f5f1;
+  --on-ink-2: #8c979e;
+  --on-carmine: #f6f2f2;
+
+  /* typography */
+  --display: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+  --body: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* layout */
+  --maxw: 1280px;
+  --pad: clamp(20px, 5vw, 72px);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Numbers line up in columns or the table reads as a mess. */
+  th,
+  td,
+  input,
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: var(--ultra);
+    color: var(--surface);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ultra);
+    outline-offset: 2px;
+  }
+
+  /* Headings are Archivo, tightly tracked. This is most of the resemblance. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 44px);
+    letter-spacing: -0.03em;
+  }
+  h2 {
+    font-size: clamp(22px, 2.6vw, 30px);
+  }
+  h3 {
+    font-size: 18px;
+  }
+}
+
+@layer components {
+  /* The mono-uppercase-wide-tracking label is the site's signature element. */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+  }
+
+  .mono-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    text-decoration: none;
+    padding: 11px 18px;
+    border: 1px solid var(--ultra);
+    background: var(--ultra);
+    color: var(--surface);
+    cursor: pointer;
+    transition: background 120ms linear, border-color 120ms linear;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--ultra-lift);
+    border-color: var(--ultra-lift);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn--ghost {
+    background: transparent;
+    color: var(--ultra);
+  }
+  .btn--ghost:hover:not(:disabled) {
+    background: transparent;
+    color: var(--ultra-lift);
+    border-color: var(--ultra-lift);
+  }
+
+  .btn--danger {
+    background: var(--carmine);
+    border-color: var(--carmine);
+    color: var(--on-carmine);
+  }
+  .btn--danger:hover:not(:disabled) {
+    background: #8a1f31;
+    border-color: #8a1f31;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    color: var(--ink-2);
+    background: var(--paper);
+  }
+
+  .field {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+    letter-spacing: 0.04em;
+  }
+  .field:focus {
+    border-color: var(--ultra);
+    outline: none;
+  }
+  .field[aria-invalid='true'] {
+    border-color: var(--carmine);
+  }
+
+  .shell {
+    max-width: var(--maxw);
+    margin-inline: auto;
+    padding-inline: var(--pad);
+  }
+}
