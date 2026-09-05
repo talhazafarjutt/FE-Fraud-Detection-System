@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { patchAlert } from '@/api/endpoints/alerts';
 import type { AlertDetail } from '@/api/schemas/alerts';
@@ -6,9 +6,23 @@ import type { AlertStatus } from '@/api/schemas/common';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
+import {
+  type FeedbackFormValues,
+  computeModelAgreement,
+  isTerminalStatus,
+} from '@/api/schemas/feedback';
 import { titleCase } from '@/lib/format';
+import { FeedbackBlock } from './FeedbackBlock';
 import { alertKeys } from './queries';
 import { transitionsFor } from './stateMachine';
+
+const EMPTY_FEEDBACK: FeedbackFormValues = {
+  true_label: 'FRAUD',
+  confidence: 'HIGH',
+  typology: 'OTHER',
+  decision_drivers: [],
+  missing_signals: [],
+};
 
 const NOTE_LIMIT = 2000;
 
@@ -20,6 +34,16 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
   const [status, setStatus] = useState<AlertStatus | ''>('');
   const [note, setNote] = useState('');
   const [assignee, setAssignee] = useState<string>('');
+  const [feedback, setFeedback] = useState<FeedbackFormValues>(EMPTY_FEEDBACK);
+
+  // §16.2 time_to_decide_seconds — cost per case, measured rather than asked
+  // for. Feeds the threshold conversation: if a false positive takes seven
+  // minutes, raising the threshold has a number attached.
+  const openedAt = useRef<number>(Date.now());
+
+  // Feedback is required on a terminal status and must never be sent on a
+  // non-terminal one — the server rejects that combination.
+  const needsFeedback = status !== '' && isTerminalStatus(status);
 
   const options = useMemo(() => transitionsFor(alert.status, scopes), [alert.status, scopes]);
   const canAssign = hasScope('alerts:assign');
@@ -34,6 +58,21 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
         ...(status ? { status } : {}),
         ...(canAssign && assignee !== '' ? { assigned_to: assignee || null } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
+        ...(needsFeedback
+          ? {
+              feedback: {
+                ...feedback,
+                // Derived, never typed by the analyst.
+                model_agreed:
+                  computeModelAgreement(feedback.true_label, alert.fraud_probability) ?? false,
+                reviewed_at: new Date().toISOString(),
+                time_to_decide_seconds: Math.max(
+                  0,
+                  Math.round((Date.now() - openedAt.current) / 1000),
+                ),
+              },
+            }
+          : {}),
       }),
     onSuccess: (updated) => {
       push({
@@ -44,6 +83,8 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
       setStatus('');
       setNote('');
       setAssignee('');
+      setFeedback(EMPTY_FEEDBACK);
+      openedAt.current = Date.now();
       // Refetch the detail so the case trail gains its entry immediately, and
       // invalidate the queue so the row reflects the new status.
       void queryClient.invalidateQueries({ queryKey: alertKeys.detail(alert.id) });
@@ -134,13 +175,23 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
           />
         </div>
 
+        {needsFeedback ? (
+          <FeedbackBlock
+            value={feedback}
+            onChange={setFeedback}
+            explanation={alert.explanation}
+            fraudProbability={alert.fraud_probability}
+            disabled={mutation.isPending}
+          />
+        ) : null}
+
         <Button
           onClick={() => mutation.mutate()}
           disabled={submitDisabled}
           className="w-full"
           title={blockedReason}
         >
-          {mutation.isPending ? 'Recording' : 'Record action'}
+          {mutation.isPending ? 'Recording' : needsFeedback ? 'Close case with feedback' : 'Record action'}
         </Button>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { feedbackSchema } from './feedback';
 import {
   alertStatusSchema,
   decimalString,
@@ -54,6 +55,8 @@ export const alertPatchSchema = z.object({
   status: alertStatusSchema.optional(),
   assigned_to: z.string().uuid().nullable().optional(),
   note: z.string().max(2000, 'Notes are limited to 2000 characters.').optional(),
+  /** §16.2 — permitted only alongside a terminal status. */
+  feedback: feedbackSchema.optional(),
 });
 export type AlertPatch = z.infer<typeof alertPatchSchema>;
 

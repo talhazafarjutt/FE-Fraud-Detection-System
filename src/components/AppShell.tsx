@@ -14,6 +14,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { to: '/dashboard', label: 'Dashboard', scope: 'alerts:read' },
   { to: '/alerts', label: 'Alerts', scope: 'alerts:read' },
   { to: '/transactions', label: 'Transactions', scope: 'transactions:read' },
   { to: '/users', label: 'Users', scope: 'users:manage' },

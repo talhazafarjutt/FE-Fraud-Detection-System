@@ -97,11 +97,15 @@ From `npm run build`, gzipped:
 | `AlertDetailPage` | 4.27 KB | on route |
 | `TransactionsPage` | 7.63 KB | on route |
 | `UsersPage` | 3.25 KB | on route |
-| `ExplanationChart` (Recharts) | 98.85 KB | **only when a case is opened** |
+| `DashboardPage` | on route | §15 dashboards |
+| Recharts (`generateCategoricalChart` + chart chunks) | ~99 KB | **only when a chart renders** |
 
-Recharts is nearly as large as the rest of the application combined, which is exactly why it is
-confined to `ExplanationChart.tsx` and pulled in by `React.lazy` on the alert detail route only.
-Verified: `recharts` appears in that one chunk and nowhere else.
+Recharts is nearly as large as the rest of the application combined, which is why it is confined to
+`ExplanationChart.tsx` and `FlowChart.tsx` and pulled in by `React.lazy`. Verified: `recharts`
+appears only in those lazy chunks and never in the eager graph.
+
+Adding the §15 dashboards and the §16 feedback loop moved the initial bundle by **0.06 KB**
+(96.12 → **96.18 KB** gzipped) for exactly that reason.
 
 The Simulator screen is not merely unrouted when `VITE_ENABLE_SIMULATOR` is off — its `import()`
 sits inside the flag check, so no chunk is emitted at all. Confirmed absent from `dist/assets/`.
@@ -517,8 +521,9 @@ Not verifiable against this build: an alert appearing from a submitted transacti
 cross-team alert rows (§5.4). Both work under `VITE_USE_MSW=true`.
 
 `npm run lint` — clean, zero warnings, audit gate passed. `npm run typecheck` — clean.
-`npm run test` — **65 passing** across seven files: refresh mutex, alert state machine, problem+json
-parsing, IBAN/money/risk, route-target injection, MSW fixture contract, and security invariants.
+`npm run test` — **84 passing** across eight files: refresh mutex, alert state machine, problem+json
+parsing, IBAN/money/risk, route-target injection, MSW fixture contract, security invariants, and the feedback/metrics
+contract.
 
 ---
 
@@ -529,3 +534,74 @@ parsing, IBAN/money/risk, route-target injection, MSW fixture contract, and secu
 - **List virtualisation.** Specified only above ~200 rows; the live seed returns 14 and the
   fixtures 48. `useInfiniteQuery` and memoised rows are in place, so adding it later is contained
   to `AlertQueuePage`.
+
+---
+
+## 11. Dashboards and the feedback loop — blocked on backend work
+
+Both features in §15 and §16 of the brief are **built and working**, but neither can run against the
+live backend yet. Verified against the running container:
+
+| What | Endpoint | Live result |
+|---|---|---|
+| Transaction list (fraud + non-fraud) | `GET /v1/transactions` | **405** — only POST is routed |
+| Dashboard aggregates | `GET /v1/metrics/overview` | **404** |
+| Analyst feedback | `PATCH /v1/fraud-alerts/{id}` with `feedback` | **422** `extra_forbidden` |
+| Retraining export | `GET /v1/feedback/export` | **404** |
+
+`BACKEND-REQUIREMENTS.md` is the implementation spec for all four, written against the same
+contracts the frontend already validates with Zod. Shipping them requires no UI change.
+
+**Until then, demo with `VITE_USE_MSW=true`** — the mock backend implements all of it.
+
+### What §15.1 forbids, and what was done instead
+
+The brief is explicit: do not fake the dashboard with client-side aggregation over a page of alerts,
+and do not invent endpoint names. Both rules are respected.
+
+- The aggregate is computed in `src/mocks/metrics.ts`, which is the **mock backend** — the stand-in
+  for the SQL the real endpoint will run. The dashboard makes one request and renders whatever comes
+  back, so swapping in the real endpoint changes nothing in the UI.
+- The endpoint names and payload shapes are exactly those in §15.2. Nothing was invented.
+- When `/v1/metrics/overview` is absent, the dashboard renders an explicit **"this backend does not
+  expose /v1/metrics/overview yet"** panel and leaves those figures blank. It does not substitute
+  numbers derived in the browser.
+
+The fixtures were extended with **2,400 clean transactions** so the alert rate is realistic. A
+dashboard fed only by the 48 alerted fixtures would report a 100% alert rate — precisely the
+distortion §15 exists to prevent. A test asserts the computed alert rate stays below 20% and above
+zero.
+
+### Recall is deliberately absent
+
+`/v1/metrics/overview` never returns recall and the UI never derives it. Recall needs false
+negatives — fraud the system did not flag — which by definition were never recorded. Reporting a
+figure we cannot measure would be dishonest to a government buyer.
+
+Precision is computed from closed cases only and ships with its caveat string, which the UI renders
+**verbatim** rather than paraphrasing. A test asserts the payload contains no `recall` key anywhere,
+and `precision` is `null` — not `0.0` — when nothing has been closed, because a zero there reads as
+"the model is never right" rather than "we have no data yet".
+
+### Verified in offline mode
+
+| Step | Result |
+|---|---|
+| Analyst lands on `/dashboard` | Four work tiles, each labelled with its window |
+| Transaction flow | 1,195 transactions, 32 flagged (2.68%), 5 confirmed fraud — last 7 days |
+| Risk distribution | LOW 98.3%, MEDIUM 0.9%, HIGH 0.8%, threshold marked at 0.70 |
+| Supervisor sections | All seven panels, gated on `alerts:read:all`, same route |
+| Precision | 50% with the caveat verbatim, plus the line explaining why recall is absent |
+| Threshold explorer | 0.50 → 4 raised / 2 confirmed / 2 FP / 3 missed; 0.70 (live) → 1 / 1 / 0 / 4; 0.90 → 0 raised / 5 missed. Labelled *what-if on historical closed cases* |
+| Feedback block | Appears only on a terminal status; three SHAP drivers offered **unchecked** |
+| `model_agreed` chip | Live and derived — FRAUD → "model agreed", INCONCLUSIVE → "not comparable" |
+| Export | One JSONL line with `model_probability: 0.973` and `model_version` **copied at write time** |
+
+The whole dashboard renders from **two requests** (`/v1/metrics/overview` + one page of alerts), as
+§15.5 requires.
+
+### Bundle impact
+
+Adding both features moved the initial bundle by **0.06 KB** (96.12 → 96.18 KB gzipped). Recharts
+stays behind `React.lazy` in the chart components, so the flow chart is fetched only when the
+dashboard renders it and the SHAP chart only when a case is opened.

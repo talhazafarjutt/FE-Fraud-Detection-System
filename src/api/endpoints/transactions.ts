@@ -1,10 +1,13 @@
-import { request, requestData } from '../client';
+import { queryString, request, requestData } from '../client';
 import {
   type Transaction,
   type TransactionCreated,
+  type TransactionFilters,
+  type TransactionPage,
   type Risk,
   riskSchema,
   transactionCreatedSchema,
+  transactionPageSchema,
   transactionSchema,
 } from '../schemas/transactions';
 
@@ -52,6 +55,36 @@ export async function getTransaction(id: string, signal?: AbortSignal): Promise<
 export async function getTransactionScore(id: string, signal?: AbortSignal): Promise<Risk> {
   return requestData(`/v1/transactions/${id}/score`, {
     schema: riskSchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+/**
+ * §15.2 list and filter. Returns 405 today — GET is not routed on this path.
+ * `has_alert` is the fraud / non-fraud switch.
+ */
+export async function listTransactions(
+  filters: TransactionFilters,
+  cursor: string | null,
+  signal?: AbortSignal,
+): Promise<TransactionPage> {
+  const qs = queryString({
+    risk_level: filters.risk_level,
+    min_probability: filters.min_probability,
+    max_probability: filters.max_probability,
+    transaction_type: filters.transaction_type,
+    scoring_status: filters.scoring_status,
+    has_alert: filters.has_alert === undefined ? undefined : String(filters.has_alert),
+    from: filters.from,
+    to: filters.to,
+    min_amount: filters.min_amount,
+    max_amount: filters.max_amount,
+    q: filters.q,
+    limit: filters.limit,
+    cursor,
+  });
+  return requestData(`/v1/transactions${qs}`, {
+    schema: transactionPageSchema,
     ...(signal ? { signal } : {}),
   });
 }

@@ -258,3 +258,59 @@ export const CLIENT_SCOPES: Record<string, string[]> = {
   'ingest-loader': ['transactions:write'],
   'ml-service': ['scores:write', 'transactions:read'],
 };
+
+/* ------------------------------------------------------------------ *
+ * Clean traffic.
+ *
+ * §15 insists both dashboards show fraud AND non-fraud together: a view built
+ * from alerts alone shows the ~1% that got flagged and hides the 99% that did
+ * not, which makes the model look busier and the queue bigger than reality.
+ *
+ * The 48 alerted transactions above are the flagged set. These are the rest,
+ * so the alert rate on the dashboard is realistic rather than 100%.
+ * ------------------------------------------------------------------ */
+
+const CLEAN_COUNT = 2_400;
+
+export const CLEAN_TRANSACTIONS: Transaction[] = Array.from(
+  { length: CLEAN_COUNT },
+  (_, index) => {
+    const minutesAgo = Math.floor(random() * 60 * 24 * 14);
+    const bookedAt = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    const amountWhole = 20 + Math.floor(random() * 4_800);
+    const cents = Math.floor(random() * 100);
+    // A small slice stays PENDING so the queue-health tile has something real
+    // to report and the "awaiting score" story is visible.
+    const pending = index % 200 === 0;
+
+    return {
+      id: uuid(index + 10_000, 'clean'),
+      external_ref: `TXN-${String(index + 1).padStart(6, '0')}`,
+      amount: `${amountWhole}.${String(cents).padStart(2, '0')}`,
+      currency: 'AED',
+      booked_at: bookedAt,
+      transaction_type: TYPES[index % TYPES.length] ?? 'PAYMENT',
+      mcc: 5411 + (index % 40),
+      sender_balance_before: `${5_000 + Math.floor(random() * 90_000)}.00`,
+      receiver_balance_before: `${100 + Math.floor(random() * 40_000)}.00`,
+      scoring_status: pending ? 'PENDING' : 'COMPLETE',
+      src_account_last4: String(1000 + ((index * 17) % 9000)),
+      dst_account_last4: String(1000 + ((index * 29) % 9000)),
+    };
+  },
+);
+
+/** Every transaction the mock backend knows about — flagged and clean. */
+export const ALL_TRANSACTIONS: Transaction[] = [
+  ...Object.values(TRANSACTION_FIXTURES),
+  ...CLEAN_TRANSACTIONS,
+];
+
+/** Probability attached to a clean transaction, for the risk distribution. */
+export const CLEAN_PROBABILITY = new Map<string, number>(
+  CLEAN_TRANSACTIONS.map((t, index) => [
+    t.id,
+    // Most traffic sits well below the 0.40 band; a thin tail reaches MEDIUM.
+    Number((index % 11 === 0 ? 0.4 + random() * 0.28 : random() * 0.38).toFixed(4)),
+  ]),
+);

@@ -47,7 +47,7 @@ export function RequireScope({
 export function ScopeLanding() {
   const { isAuthenticated, hasScope } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (hasScope('alerts:read')) return <Navigate to="/alerts" replace />;
+  if (hasScope('alerts:read')) return <Navigate to="/dashboard" replace />;
   if (hasScope('users:manage')) return <Navigate to="/users" replace />;
   return <Navigate to="/login" replace />;
 }

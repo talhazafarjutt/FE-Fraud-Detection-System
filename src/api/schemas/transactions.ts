@@ -201,3 +201,47 @@ export const transactionSchema = z.object({
   dst_account_last4: z.string(),
 });
 export type Transaction = z.infer<typeof transactionSchema>;
+
+/* ------------------------------------------------------------------ *
+ * `GET /v1/transactions` — §15.2 list and filter.
+ *
+ * THIS ENDPOINT DOES NOT EXIST YET. Verified against the running container:
+ * GET on /v1/transactions returns 405 Method Not Allowed (only POST is
+ * routed). Written to the specified contract so it works the moment the
+ * endpoint ships.
+ *
+ * `has_alert` is the fraud / non-fraud switch that §15 turns on — a view built
+ * from alerts alone shows the ~1% that got flagged and hides the 99% that did
+ * not.
+ * ------------------------------------------------------------------ */
+
+export const transactionListItemSchema = transactionSchema.extend({
+  fraud_probability: z.number().nullable().default(null),
+  risk_level: z.string().nullable().default(null),
+  alert_id: z.string().uuid().nullable().default(null),
+  alert_status: z.string().nullable().default(null),
+});
+export type TransactionListItem = z.infer<typeof transactionListItemSchema>;
+
+export const transactionPageSchema = z.object({
+  items: z.array(transactionListItemSchema),
+  next_cursor: z.string().nullable().default(null),
+  page_size: z.number().int(),
+});
+export type TransactionPage = z.infer<typeof transactionPageSchema>;
+
+export interface TransactionFilters {
+  risk_level?: string;
+  min_probability?: number;
+  max_probability?: number;
+  transaction_type?: string;
+  scoring_status?: string;
+  /** true = flagged only, false = clean only, undefined = everything. */
+  has_alert?: boolean;
+  from?: string;
+  to?: string;
+  min_amount?: string;
+  max_amount?: string;
+  q?: string;
+  limit?: number;
+}

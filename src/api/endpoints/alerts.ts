@@ -42,6 +42,10 @@ export async function patchAlert(alertId: string, patch: AlertPatch): Promise<Al
   if (patch.status !== undefined) body['status'] = patch.status;
   if (patch.assigned_to !== undefined) body['assigned_to'] = patch.assigned_to;
   if (patch.note !== undefined && patch.note !== '') body['note'] = patch.note;
+  // §16.2: only ever sent with a terminal status. Against a backend that has
+  // not shipped §16.3 this is a 422 (extra_forbidden) — surfaced to the user
+  // rather than swallowed.
+  if (patch.feedback !== undefined) body['feedback'] = patch.feedback;
 
   return requestData(`/v1/fraud-alerts/${alertId}`, {
     method: 'PATCH',

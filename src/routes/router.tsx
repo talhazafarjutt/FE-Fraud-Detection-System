@@ -8,6 +8,7 @@ import { NotFound } from '@/components/NotFound';
 // Route-level code splitting. Recharts is imported inside the explanation
 // chart only, so it never lands in the initial bundle.
 const LoginPage = lazy(() => import('@/features/auth/LoginPage'));
+const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const AlertQueuePage = lazy(() => import('@/features/alerts/AlertQueuePage'));
 const AlertDetailPage = lazy(() => import('@/features/alerts/AlertDetailPage'));
 const TransactionsPage = lazy(() => import('@/features/transactions/TransactionsPage'));
@@ -41,6 +42,7 @@ export const router = createBrowserRouter(
       element: <AppShell />,
       children: [
         { index: true, element: <ScopeLanding /> },
+        { path: 'dashboard', element: guarded('alerts:read', <DashboardPage />, 'Dashboard') },
         { path: 'alerts', element: guarded('alerts:read', <AlertQueuePage />, 'Alert queue') },
         { path: 'alerts/:alertId', element: guarded('alerts:read', <AlertDetailPage />, 'Alert') },
         {

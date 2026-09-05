@@ -3,10 +3,13 @@ import { TRANSITIONS, isKnownStatus } from '@/features/alerts/stateMachine';
 import {
   ACCOUNT_SCOPES,
   ALERT_FIXTURES,
+  ALL_TRANSACTIONS,
+  CLEAN_PROBABILITY,
   CLIENT_SCOPES,
   TRANSACTION_FIXTURES,
   USER_FIXTURES,
 } from './fixtures';
+import { computeOverview } from './metrics';
 
 /**
  * MSW handlers mirroring the real backend closely enough that the whole console
@@ -27,6 +30,24 @@ const CLIENT_SECRETS: Record<string, string> = {
 const alerts = ALERT_FIXTURES.map((alert) => ({ ...alert, events: [...alert.events] }));
 const users = [...USER_FIXTURES];
 const idempotencyLog = new Map<string, Record<string, unknown>>();
+const transactions = [...ALL_TRANSACTIONS];
+
+/**
+ * §16.3 CASE_FEEDBACK. `model_probability` and `model_version` are COPIED at
+ * write time, never joined: when the model is retrained the score may be
+ * recomputed, and a training label must stay pinned to the score that actually
+ * produced it.
+ */
+interface FeedbackRow {
+  alert_id: string;
+  transaction_id: string;
+  reviewer_id: string;
+  model_probability: number;
+  model_version: string | null;
+  created_at: string;
+  [field: string]: unknown;
+}
+const feedbackRows: FeedbackRow[] = [];
 
 /**
  * Mock identifiers must be real UUIDs.
@@ -217,7 +238,23 @@ export const handlers = [
       status?: string;
       assigned_to?: string | null;
       note?: string;
+      feedback?: Record<string, unknown>;
     };
+
+    // §16.3: feedback is accepted only alongside a terminal status. Sending it
+    // on IN_REVIEW or ESCALATED is a 422, exactly as the real endpoint should
+    // behave once it exists.
+    if (body.feedback) {
+      const terminal = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE'];
+      if (!body.status || !terminal.includes(body.status)) {
+        return problem(
+          422,
+          'Validation failed',
+          'Feedback may only accompany a terminal status.',
+          { errors: [{ field: 'feedback', message: 'Requires a terminal status.' }] },
+        );
+      }
+    }
 
     if (body.assigned_to !== undefined && !session.scopes.includes('alerts:assign')) {
       return problem(403, 'Insufficient scope', 'Assigning a case requires alerts:assign.', {
@@ -268,6 +305,21 @@ export const handlers = [
     }
 
     if (body.assigned_to !== undefined) alert.assigned_to = body.assigned_to;
+
+    if (body.feedback) {
+      // model_probability and model_version are copied, not joined — a training
+      // label must stay pinned to the score that produced it even after the
+      // model is retrained and scores are recomputed.
+      feedbackRows.push({
+        ...body.feedback,
+        alert_id: alert.id,
+        transaction_id: alert.transaction_id,
+        reviewer_id: session.subject,
+        model_probability: alert.fraud_probability,
+        model_version: alert.model_version,
+        created_at: new Date().toISOString(),
+      });
+    }
 
     const { events: _events, explanation: _explanation, ...row } = alert;
     return HttpResponse.json(row);
@@ -433,6 +485,128 @@ export const handlers = [
     if (!user) return problem(404, 'Not found', 'No such user.');
     user.is_active = false;
     return HttpResponse.json(user);
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * §15.2 — endpoints the real backend does not have yet.
+   * These mirror the specified contract exactly so swapping in the real
+   * implementation requires no UI change.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/metrics/overview', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const url = new URL(request.url);
+    const bucket = url.searchParams.get('bucket') === 'hour' ? 'hour' : 'day';
+    const from = url.searchParams.get('from') ?? undefined;
+    const to = url.searchParams.get('to') ?? undefined;
+
+    // Same team filter as every other row-returning endpoint.
+    const visibleAlerts = session.scopes.includes('alerts:read:all')
+      ? alerts
+      : alerts.filter((a) => a.team === session.team);
+    const visibleAlertTxIds = new Set(visibleAlerts.map((a) => a.transaction_id));
+    const visibleTx = session.scopes.includes('alerts:read:all')
+      ? transactions
+      : transactions.filter((t) => visibleAlertTxIds.has(t.id) || !TRANSACTION_FIXTURES[t.id]);
+
+    return HttpResponse.json(
+      computeOverview({ alerts: visibleAlerts, transactions: visibleTx, bucket, from, to }),
+    );
+  }),
+
+  http.get('*/v1/transactions', ({ request }) => {
+    const guard = requireScope(request, 'transactions:read');
+    if (guard.error) return guard.error;
+
+    const url = new URL(request.url);
+    const p = url.searchParams;
+    const limit = Math.min(200, Math.max(1, Number(p.get('limit') ?? '50')));
+    const cursor = p.get('cursor');
+
+    const alertByTx = new Map(alerts.map((a) => [a.transaction_id, a]));
+
+    let rows = transactions.map((t) => {
+      const alert = alertByTx.get(t.id);
+      const probability = alert?.fraud_probability ?? CLEAN_PROBABILITY.get(t.id) ?? 0;
+      return {
+        ...t,
+        fraud_probability: probability,
+        risk_level: probability >= 0.7 ? 'HIGH' : probability >= 0.4 ? 'MEDIUM' : 'LOW',
+        alert_id: alert?.id ?? null,
+        alert_status: alert?.status ?? null,
+      };
+    });
+
+    // has_alert is the fraud / non-fraud switch §15 is built around.
+    const hasAlert = p.get('has_alert');
+    if (hasAlert === 'true') rows = rows.filter((r) => r.alert_id !== null);
+    if (hasAlert === 'false') rows = rows.filter((r) => r.alert_id === null);
+
+    const riskLevel = p.get('risk_level');
+    if (riskLevel) rows = rows.filter((r) => r.risk_level === riskLevel);
+
+    const type = p.get('transaction_type');
+    if (type) rows = rows.filter((r) => r.transaction_type === type);
+
+    const scoringStatus = p.get('scoring_status');
+    if (scoringStatus) rows = rows.filter((r) => r.scoring_status === scoringStatus);
+
+    const minP = p.get('min_probability');
+    if (minP) rows = rows.filter((r) => r.fraud_probability >= Number(minP));
+    const maxP = p.get('max_probability');
+    if (maxP) rows = rows.filter((r) => r.fraud_probability <= Number(maxP));
+
+    const from = p.get('from');
+    if (from) rows = rows.filter((r) => Date.parse(r.booked_at) >= Date.parse(from));
+    const to = p.get('to');
+    if (to) rows = rows.filter((r) => Date.parse(r.booked_at) <= Date.parse(to));
+
+    const minAmount = p.get('min_amount');
+    if (minAmount) rows = rows.filter((r) => Number(r.amount) >= Number(minAmount));
+    const maxAmount = p.get('max_amount');
+    if (maxAmount) rows = rows.filter((r) => Number(r.amount) <= Number(maxAmount));
+
+    const q = p.get('q');
+    if (q) {
+      const needle = q.toLowerCase();
+      rows = rows.filter((r) => (r.external_ref ?? '').toLowerCase().includes(needle));
+    }
+
+    // Sort booked_at DESC, id DESC — the cursor encodes that pair.
+    rows.sort(
+      (a, b) => Date.parse(b.booked_at) - Date.parse(a.booked_at) || b.id.localeCompare(a.id),
+    );
+
+    const start = cursor ? rows.findIndex((r) => r.id === cursor) + 1 : 0;
+    const page = rows.slice(start, start + limit);
+    const last = page.at(-1);
+    const more = start + limit < rows.length;
+
+    return HttpResponse.json({
+      items: page,
+      next_cursor: more && last ? last.id : null,
+      page_size: limit,
+    });
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * §16.3 — feedback capture and export.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/feedback/export', ({ request }) => {
+    const guard = requireScope(request, 'users:manage');
+    if (guard.error) return guard.error;
+
+    // One JSON object per line: model input, model output, analyst label.
+    // This file is the retraining set — it is what makes the loop real.
+    const lines = feedbackRows.map((row) => JSON.stringify(row)).join('\n');
+    return new HttpResponse(lines, {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    });
   }),
 
   http.post('*/v1/scores', async ({ request }) => {

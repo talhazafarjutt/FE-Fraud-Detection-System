@@ -41,7 +41,7 @@ export default function LoginPage() {
       const session = await signIn(values);
       // Route by scope, not by role name — the backend authorises on scopes.
       if (session.scopes.includes('alerts:read')) {
-        navigate('/alerts', { replace: true });
+        navigate('/dashboard', { replace: true });
       } else if (session.scopes.includes('users:manage')) {
         navigate('/users', { replace: true });
       } else {
