@@ -7,6 +7,7 @@ import { type LoginInput, loginSchema } from '@/api/schemas/auth';
 import { ApiError } from '@/lib/problem';
 import { Button, Eyebrow } from '@/components/primitives';
 import { StatusDot } from '@/components/StatusDot';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 /** Local seed accounts. Rendered only in dev; all data is synthetic. */
 const DEMO_ACCOUNTS = [
@@ -72,7 +73,10 @@ export default function LoginPage() {
           <span className="font-display text-[19px] font-extrabold uppercase tracking-tighter">
             Civitas<span className="text-ultra">AI</span>
           </span>
-          <StatusDot />
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <StatusDot />
+          </div>
         </div>
       </header>
 

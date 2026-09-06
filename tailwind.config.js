@@ -31,6 +31,11 @@ export default {
       'on-ink': 'var(--on-ink)',
       'on-ink-2': 'var(--on-ink-2)',
       'on-carmine': 'var(--on-carmine)',
+      'on-ultra': 'var(--on-ultra)',
+      // Surfaces that stay inverted on purpose, in both modes.
+      band: 'var(--band)',
+      'on-band': 'var(--on-band)',
+      overlay: 'var(--overlay)',
     },
     fontFamily: {
       display: 'var(--display)',

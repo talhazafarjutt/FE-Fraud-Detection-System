@@ -521,7 +521,7 @@ Not verifiable against this build: an alert appearing from a submitted transacti
 cross-team alert rows (§5.4). Both work under `VITE_USE_MSW=true`.
 
 `npm run lint` — clean, zero warnings, audit gate passed. `npm run typecheck` — clean.
-`npm run test` — **84 passing** across eight files: refresh mutex, alert state machine, problem+json
+`npm run test` — **92 passing** across nine files: refresh mutex, alert state machine, problem+json
 parsing, IBAN/money/risk, route-target injection, MSW fixture contract, security invariants, and the feedback/metrics
 contract.
 
@@ -605,3 +605,96 @@ The whole dashboard renders from **two requests** (`/v1/metrics/overview` + one 
 Adding both features moved the initial bundle by **0.06 KB** (96.12 → 96.18 KB gzipped). Recharts
 stays behind `React.lazy` in the chart components, so the flow chart is fetched only when the
 dashboard renders it and the SHAP chart only when a case is opened.
+
+---
+
+## 12. Dark mode
+
+**§14.1 of the brief says not to build this.** It was added on request, so this section records
+what was done and what it cost.
+
+**The default is unchanged.** No `data-theme` attribute means light, exactly as specified — the
+demo looks the same unless someone opts in. The header toggle offers three states:
+
+| State | Behaviour |
+|---|---|
+| **Light** | Forces the brief's palette, even on a dark OS |
+| **Dark** | Forces dark, even on a light OS |
+| **Auto** | Follows `prefers-color-scheme` live, including mid-session changes |
+
+### The dark palette is not invented
+
+civitasai.net has no dark *mode*, but it does use inverted near-black bands, and the colours inside
+them are exactly what a dark theme needs. Taken from its stylesheet:
+
+| Token | Value | Role on the site |
+|---|---|---|
+| `--paper` | `#101418` | its dark-band background |
+| `--rule` | `#2A3238` | hairline inside a band |
+| `--ink` | `#F3F5F1` | primary text on dark |
+| `--ink-2` | `#A9B3B9` | secondary on dark |
+| `--ink-3` | `#8C979E` | muted on dark |
+| `--ultra` | `#8FA0F0` | the blue it uses on dark |
+
+Four values are **derived**, because the site has no on-dark equivalent: the panel surface
+(`#171D22`), and on-dark `--carmine` / `--amber` / `--sage`. `#9E2438` and `#B0740F` are unreadable
+on near-black, so they are lightened while keeping hue.
+
+Three tokens were added so surfaces that are inverted *on purpose* survive the flip. The
+machine-integration banners used `bg-ink`; in dark mode `--ink` becomes light, so they would have
+inverted into glaring white strips. They now use `--band` / `--on-band`, and the modal scrim uses
+`--overlay` rather than `bg-ink/50`.
+
+### Contrast
+
+Measured on the live DOM, not by eye — every text node on the dashboard and the alert detail page,
+against its effective background:
+
+| Mode | Failures |
+|---|---|
+| Dark | **0** of 294 elements |
+| Light | 10 elements, all `--ink-3` |
+
+The dark palette is **more** accessible than the light one. Against the panel surface the worst dark
+pairing is 5.70:1 and most are AAA; in light, `--amber` manages only 3.58:1.
+
+**A pre-existing light-mode issue, not introduced here:** `--ink-3` (`#69747B`) on `--paper` is
+3.80:1 and on `--surface` is 4.37:1, against the 4.5:1 AA requirement for 11px text. Those are the
+brief's own tokens on the brief's own backgrounds, used for muted mono labels. It was left alone
+because §14 says to use the extracted palette literally and changing it weakens the brand match —
+but for a government buyer it is worth a decision. Darkening `--ink-3` to about `#5F6A71` clears AA
+and is near-indistinguishable; that is a one-line change if wanted.
+
+### A real bug this surfaced
+
+Switching to light left elements painting the **dark** palette — `--ultra` resolved to `#22318E` on
+both `:root` and the element while the element still painted `#8FA0F0` seconds later. Chromium does
+not reliably re-resolve a `var()` behind a property that has a `transition`.
+
+Fixed by suppressing every transition for the duration of the swap (`html.theme-switching`), removed
+two frames later. It also stops the console cross-fading between palettes, which looked cheap.
+`tests/theme.test.ts` pins the guard.
+
+### Tests
+
+`tests/theme.test.ts` (7) covers the failure modes specific to theming: every light colour token has
+a dark counterpart, the explicit-dark and system-dark blocks define **identical** token sets (drift
+means the OS-dark user and the toggle-dark user see different pages), the system block is guarded so
+an explicit light choice wins, `color-scheme` is declared in both, the transition guard exists, and
+**no `border-radius` other than `0`/`50%` appears** — dark mode is not an excuse to soften the design
+language. Mutation-tested: removing one token from the dark block fails two tests.
+
+### One security note
+
+This adds the **only** web-storage use in the codebase — the theme preference in `localStorage`.
+The blanket ESLint ban stays; `src/styles/theme.ts` carries a narrow, commented
+`eslint-disable-next-line`. The value is a three-value enum validated against an allow-list on read,
+so a tampered value can do nothing worse than fall back to "auto".
+
+`tests/security-invariants.test.ts` now asserts that **exactly one** file touches storage, that it
+writes a single key (`civitas.theme`), that its code mentions nothing token-shaped, and that the
+read path validates. Tokens remain in memory only.
+
+### Cost
+
+Initial JS 96.18 → **96.77 KB** gzipped (+0.59 KB). CSS 5.37 → **5.78 KB** (+0.41 KB).

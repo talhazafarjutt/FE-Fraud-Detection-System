@@ -60,8 +60,8 @@ export function IngestSession({ onChange }: { onChange: (session: MachineSession
     const minutesLeft = Math.max(0, Math.round((session.expiresAt - Date.now()) / 60_000));
     return (
       <div className="border border-ultra bg-surface">
-        <div className="border-b border-rule bg-ink px-6 py-3">
-          <p className="mono-label text-on-ink">
+        <div className="border-b border-rule bg-band px-6 py-3">
+          <p className="mono-label text-on-band">
             Machine integration — not part of the analyst experience
           </p>
         </div>
@@ -81,8 +81,8 @@ export function IngestSession({ onChange }: { onChange: (session: MachineSession
 
   return (
     <div className="border border-rule bg-surface">
-      <div className="border-b border-rule bg-ink px-6 py-3">
-        <p className="mono-label text-on-ink">
+      <div className="border-b border-rule bg-band px-6 py-3">
+        <p className="mono-label text-on-band">
           Machine integration — not part of the analyst experience
         </p>
       </div>

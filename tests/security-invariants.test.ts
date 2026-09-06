@@ -65,12 +65,36 @@ describe('secrets never reach shipped application code', () => {
 });
 
 describe('token handling', () => {
-  it('no source touches web storage or cookies', () => {
+  /**
+   * Exactly one file may touch web storage: the colour-scheme preference.
+   * It is an enum with three legal values, validated on read, and carries no
+   * user data. Everything else — tokens above all — stays in memory.
+   */
+  const STORAGE_EXCEPTION = 'src/styles/theme.ts';
+
+  it('only the theme preference touches web storage, and nothing else does', () => {
     const banned = /\b(localStorage|sessionStorage|document\.cookie|indexedDB)\b/;
-    for (const file of SOURCES) {
-      const code = stripComments(read(file));
-      expect(banned.test(code), `${rel(file)} touches client-side persistence`).toBe(false);
-    }
+    const offenders = SOURCES.filter((file) => banned.test(stripComments(read(file)))).map(rel);
+    expect(offenders).toEqual([STORAGE_EXCEPTION]);
+  });
+
+  it('the storage exception stores a colour scheme and nothing sensitive', () => {
+    const code = read(path.join(ROOT, STORAGE_EXCEPTION));
+
+    // One key, and it is the theme key.
+    const keys = [...code.matchAll(/localStorage\.(?:get|set)Item\(\s*([A-Za-z_]+)/g)].map(
+      (m) => m[1],
+    );
+    expect(new Set(keys)).toEqual(new Set(['STORAGE_KEY']));
+    expect(code).toMatch(/const STORAGE_KEY = 'civitas\.theme'/);
+
+    // Nothing token-shaped goes near it. Checked against CODE, not prose — the
+    // file's own doc comment necessarily discusses tokens to explain why this
+    // exception is safe.
+    expect(stripComments(code)).not.toMatch(/token|Token|password|secret|refresh/i);
+
+    // The value read back is validated against the allow-list before use.
+    expect(code).toMatch(/isTheme\(raw\) \? raw : 'system'/);
   });
 
   it('the access token is only ever read through the token stores', () => {

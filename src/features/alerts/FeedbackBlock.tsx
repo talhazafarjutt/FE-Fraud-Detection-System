@@ -105,7 +105,7 @@ export function FeedbackBlock({
               onClick={() => onChange({ ...value, true_label: label })}
               className={cx(
                 'bg-surface px-3 py-3 font-mono text-[11px] uppercase tracking-tag transition-colors',
-                value.true_label === label ? 'bg-ultra text-on-ink' : 'text-ink-2 hover:bg-paper',
+                value.true_label === label ? 'bg-ultra text-on-ultra' : 'text-ink-2 hover:bg-paper',
               )}
             >
               {LABEL_COPY[label]}

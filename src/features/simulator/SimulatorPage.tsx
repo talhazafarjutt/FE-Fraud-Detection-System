@@ -88,8 +88,8 @@ export default function SimulatorPage() {
   return (
     <div className="space-y-10">
       <div className="border border-carmine bg-surface">
-        <div className="bg-ink px-6 py-4">
-          <p className="mono-label text-on-ink">
+        <div className="bg-band px-6 py-4">
+          <p className="mono-label text-on-band">
             Machine integration — not part of the analyst experience
           </p>
         </div>

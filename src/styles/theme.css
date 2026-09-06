@@ -38,6 +38,20 @@
   --on-ink-2: #8c979e;
   --on-carmine: #f6f2f2;
 
+  /*
+   * Surfaces that are inverted ON PURPOSE (the machine-integration banners) and
+   * the modal scrim. These need their own tokens rather than `bg-ink`, because
+   * in dark mode `--ink` becomes light and any band built on it would invert
+   * into a glaring white strip.
+   */
+  --band: #101418;
+  --on-band: #f3f5f1;
+  --overlay: rgb(16 20 24 / 50%);
+  /* Text sitting on a filled --ultra button. */
+  --on-ultra: #f3f5f1;
+
+  color-scheme: light;
+
   /* typography */
   --display: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
   --body: 'Newsreader Variable', 'Newsreader', Georgia, serif;
@@ -48,9 +62,123 @@
   --pad: clamp(20px, 5vw, 72px);
 }
 
+/*
+ * DARK MODE
+ *
+ * §14.1 of the brief says not to build this; it was added on request. The
+ * default is unchanged — light — so the demo looks exactly as specified unless
+ * someone opts in.
+ *
+ * The palette is not invented. civitasai.net has no dark *mode*, but it does
+ * use inverted near-black bands, and the colours it uses inside them are
+ * exactly what a dark theme needs. Taken straight from its stylesheet:
+ *
+ *   #101418  band background      #2A3238  hairline inside a band
+ *   #F3F5F1  primary on dark      #A9B3B9  secondary on dark
+ *   #8C979E  muted on dark        #8FA0F0  the blue it uses on dark
+ *
+ * Three values are DERIVED because the site has no on-dark equivalent: the
+ * panel surface, and the on-dark carmine/amber/sage. #9E2438 and #B0740F are
+ * unreadable on a near-black ground, so they are lightened while keeping hue.
+ *
+ * Every pairing was contrast-checked against the panel surface: the worst is
+ * 5.70:1 (AA) and most are AAA. The dark palette is in fact more accessible
+ * than the light one, where --amber manages only 3.58:1.
+ */
+/* System preference — applies unless the user explicitly chose light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ink: #f3f5f1;
+    --ink-2: #a9b3b9;
+    --ink-3: #8c979e;
+    --paper: #101418;
+    --surface: #171d22;
+    --rule: #2a3238;
+    --rule-soft: #212930;
+
+    --ultra: #8fa0f0;
+    --ultra-lift: #b3c0f7;
+
+    --carmine: #e8909e;
+    --amber: #d9a441;
+    --sage: #8fbba1;
+
+    --ink-line: #2a3238;
+    --on-ink: #101418;
+    --on-ink-2: #69747b;
+    --on-carmine: #1a0e11;
+
+    --band: #222a30;
+    --on-band: #f3f5f1;
+    --overlay: rgb(0 0 0 / 66%);
+    --on-ultra: #101418;
+
+    color-scheme: dark;
+  }
+}
+
+/* Explicit choice always wins, in both directions. */
+:root[data-theme='dark'] {
+  --ink: #f3f5f1;
+  --ink-2: #a9b3b9;
+  --ink-3: #8c979e;
+  --paper: #101418;
+  --surface: #171d22;
+  --rule: #2a3238;
+  --rule-soft: #212930;
+
+  --ultra: #8fa0f0;
+  --ultra-lift: #b3c0f7;
+
+  --carmine: #e8909e;
+  --amber: #d9a441;
+  --sage: #8fbba1;
+
+  --ink-line: #2a3238;
+  --on-ink: #101418;
+  --on-ink-2: #69747b;
+  --on-carmine: #1a0e11;
+
+  --band: #222a30;
+  --on-band: #f3f5f1;
+  --overlay: rgb(0 0 0 / 66%);
+  --on-ultra: #101418;
+
+  color-scheme: dark;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+  }
+
+  /*
+   * Suppress every transition while the theme flips.
+   *
+   * Two reasons. The cosmetic one: without this the whole console cross-fades
+   * between palettes, which looks cheap. The correctness one matters more —
+   * when a custom property behind a transitioned `color` changes, Chromium does
+   * not reliably re-resolve the `var()`, and elements keep painting the old
+   * palette's colour indefinitely. Observed directly: --ultra resolved to
+   * #22318E on both :root and the element while the element still painted
+   * #8FA0F0 seconds later. Killing transitions for the duration of the swap
+   * forces a clean re-resolve.
+   */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 
   body {
@@ -72,7 +200,7 @@
 
   ::selection {
     background: var(--ultra);
-    color: var(--surface);
+    color: var(--on-ultra);
   }
 
   :focus-visible {
@@ -134,7 +262,7 @@
     padding: 11px 18px;
     border: 1px solid var(--ultra);
     background: var(--ultra);
-    color: var(--surface);
+    color: var(--on-ultra);
     cursor: pointer;
     transition: background 120ms linear, border-color 120ms linear;
   }
@@ -163,8 +291,8 @@
     color: var(--on-carmine);
   }
   .btn--danger:hover:not(:disabled) {
-    background: #8a1f31;
-    border-color: #8a1f31;
+    /* Darken in light mode, lighten in dark — same gesture either way. */
+    filter: brightness(0.88);
   }
 
   .tag {

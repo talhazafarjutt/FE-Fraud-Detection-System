@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { roleLabel } from '@/auth/tokenStore';
 import { ErrorBoundary } from './ErrorBoundary';
 import { StatusDot } from './StatusDot';
+import { ThemeToggle } from './ThemeToggle';
 import { Skeleton, cx } from './primitives';
 
 interface NavItem {
@@ -84,6 +85,7 @@ export function AppShell() {
               {role}
             </span>
             <StatusDot />
+            <ThemeToggle />
             <button type="button" onClick={handleSignOut} className="btn btn--ghost">
               Sign out
             </button>

@@ -7,6 +7,7 @@ import './styles/theme.css';
 import { AuthProvider } from './auth/AuthProvider';
 import { ToastProvider } from './components/Toasts';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ThemeProvider } from './components/ThemeToggle';
 import { router } from './routes/router';
 import { errorStatus } from './lib/problem';
 
@@ -41,13 +42,15 @@ async function bootstrap() {
   createRoot(container).render(
     <StrictMode>
       <ErrorBoundary label="Application">
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <ToastProvider>
-              <RouterProvider router={router} future={{ v7_startTransition: true }} />
-            </ToastProvider>
-          </AuthProvider>
-        </QueryClientProvider>
+        <ThemeProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <ToastProvider>
+                <RouterProvider router={router} future={{ v7_startTransition: true }} />
+              </ToastProvider>
+            </AuthProvider>
+          </QueryClientProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </StrictMode>,
   );
