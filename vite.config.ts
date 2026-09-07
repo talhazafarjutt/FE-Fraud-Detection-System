@@ -4,6 +4,10 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Vite 8 loads this config natively, where the CJS `__dirname` does not exist.
+// `import.meta.dirname` is the supported replacement (Node 20.11+).
+const rootDir = import.meta.dirname;
+
 /**
  * CORS decision (see README): we use the Vite dev proxy (option 2 in the brief).
  * The browser only ever talks to the Vite origin, so the backend's empty
@@ -73,7 +77,7 @@ function dropMockWorkerPlugin(mswEnabled: boolean): Plugin {
     // the whole build rather than in generateBundle.
     closeBundle() {
       if (mswEnabled) return;
-      const target = path.resolve(__dirname, 'dist/mockServiceWorker.js');
+      const target = path.resolve(rootDir, 'dist/mockServiceWorker.js');
       if (fs.existsSync(target)) {
         fs.rmSync(target);
         this.warn('Removed mockServiceWorker.js from the production build.');
@@ -132,7 +136,7 @@ export default defineConfig(({ command, mode }) => {
       process.env['ANALYZE'] === 'true' &&
         visualizer({ filename: 'dist/bundle-stats.html', gzipSize: true, brotliSize: true }),
     ].filter(Boolean),
-    resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+    resolve: { alias: { '@': path.resolve(rootDir, './src') } },
     server: { port: 5173, strictPort: true, proxy, headers: headersFor(devCsp) },
     // `preview` serves the real build, so it gets the real policy. Use
     // `npm run build && npm run preview` to verify the strict CSP before a demo.
@@ -142,9 +146,21 @@ export default defineConfig(({ command, mode }) => {
       sourcemap: false,
       rollupOptions: {
         output: {
-          manualChunks: {
-            react: ['react', 'react-dom', 'react-router-dom'],
-            query: ['@tanstack/react-query'],
+          /*
+           * Rolldown (Vite 8) accepts only the function form of manualChunks;
+           * the object form was a Rollup-ism. Matching is on an exact package
+           * directory — `node_modules/react/` must not also swallow
+           * `react-router` or `@tanstack/react-query`.
+           */
+          manualChunks(id: string) {
+            const path = id.replace(/\\/g, '/');
+            if (!path.includes('/node_modules/')) return;
+            const pkg = /\/node_modules\/(@[^/]+\/[^/]+|[^/]+)\//.exec(path)?.[1];
+            if (!pkg) return;
+            if (['react', 'react-dom', 'scheduler'].includes(pkg)) return 'react';
+            if (['react-router', 'react-router-dom'].includes(pkg)) return 'react';
+            if (pkg === '@tanstack/react-query') return 'query';
+            return;
           },
         },
       },
