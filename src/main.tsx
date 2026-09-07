@@ -46,7 +46,7 @@ async function bootstrap() {
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
               <ToastProvider>
-                <RouterProvider router={router} future={{ v7_startTransition: true }} />
+                <RouterProvider router={router} />
               </ToastProvider>
             </AuthProvider>
           </QueryClientProvider>

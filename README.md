@@ -23,11 +23,10 @@ The console is at <http://localhost:5173>. The backend must be reachable at the 
 | `npm run build` | Type-check then production build into `dist/` |
 | `npm run preview` | Serve the real build with the strict production CSP |
 | `npm run typecheck` | `tsc -b --noEmit` |
-| `npm run lint` | ESLint (`eslint-plugin-security`, zero warnings) then the dependency audit |
+| `npm run lint` | ESLint (`eslint-plugin-security`, zero warnings) then a strict dependency audit |
 | `npm run test` | Vitest |
 | `npm run analyze` | Build with `rollup-plugin-visualizer` → `dist/bundle-stats.html` |
-| `npm run audit:prod` | `npm audit --omit=dev --audit-level=high` — part of the lint gate |
-| `npm run audit:full` | Every advisory including the two documented moderates (§4.4) |
+| `npm run audit:prod` | `npm audit --omit=dev` — runs as part of the lint gate |
 
 ### Demo accounts (local seed, synthetic)
 
@@ -170,36 +169,22 @@ Two things worth knowing:
 Fonts are self-hosted via `@fontsource` precisely because of `font-src 'self'`. The console makes
 **zero third-party requests** — verified in the network panel.
 
-### 4.4 Dependency audit — two known moderates, analysed not ignored
+### 4.4 Dependency audit — clean
 
-`npm audit --omit=dev` reports two **moderate** advisories, both in `react-router`, both affecting
-the entire 6.x line (`6.0.0 – 7.17.0`). They are fixed only in 7.18+, and the brief pins React
-Router v6. Rather than silently bump the major or silently ignore them, here is the reachability
-analysis:
+`npm audit --omit=dev` reports **0 vulnerabilities**, and it runs as part of `npm run lint`, so any
+new advisory fails the gate.
 
-| Advisory | Reachable here? |
-|---|---|
-| [GHSA-337j-9hxr-rhxg](https://github.com/advisories/GHSA-337j-9hxr-rhxg) — arbitrary constructor injection via `deserializeErrors()` during **SSR hydration** | **No.** This is a pure SPA: `createBrowserRouter` + `createRoot`, no `hydrateRoot`, no `StaticRouter`, no server rendering anywhere. The vulnerable code path does not run. |
-| [GHSA-wrjc-x8rr-h8h6](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6) — open redirect via a backslash in `<Link to>` / `useNavigate` | **No**, and the reason is enforced by a test. |
+This previously carried two moderate `react-router` advisories
+([GHSA-337j-9hxr-rhxg](https://github.com/advisories/GHSA-337j-9hxr-rhxg),
+[GHSA-wrjc-x8rr-h8h6](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6)) that affected the whole
+6.x line and were fixed only in 7.18. The project is now on **react-router-dom 7.18.3**, so both are
+resolved and the gate no longer needs the `--audit-level=high` exemption it used to carry.
 
-For the second: every route target in this codebase is either a hardcoded literal
-(`/`, `/alerts`, `/login`, `/users`) or one of exactly two interpolations —
-`/alerts/${alert.id}` in `AlertRow` and `/alerts/${alert.alert_id}` in `SubmissionResult`. Both
-values come off the wire, so the advisory is closed only because those fields are validated as
-UUIDs before they can reach a `Link`. A UUID cannot contain a backslash, a slash or a scheme
-separator.
-
-That makes the Zod schema a security control rather than a convenience, so
-`tests/route-injection.test.ts` pins it: hostile ids (`\\evil.example`, `//evil.example`,
-`http://evil.example`, `../../logout`, …) are rejected by `alertSchema`, by `alertRefSchema`, and
-at the page level — one poisoned row fails the whole page rather than rendering a poisoned link.
-If someone later loosens `uuid()` to `string()`, those tests fail.
-
-**Gate policy:** `npm run lint` runs `npm audit --omit=dev --audit-level=high`, so the build fails
-on anything high or critical while not blocking on these two analysed moderates. Run
-`npm run audit:full` to see everything. **Revisit if the project ever adopts SSR, or if any route
-target starts being built from user input** — either change makes these advisories live, and the
-correct response then is to move to React Router 7.18+.
+The mitigation written at the time still stands on its own merits and is still enforced: every route
+target is either a hardcoded literal or a UUID-validated id, and `tests/route-injection.test.ts`
+rejects hostile ids (`\\evil.example`, `//evil.example`, `http://evil.example`, `../../logout`) at
+the schema level. That test is worth keeping — it stops a future change from building a route target
+out of user input.
 
 ### 4.5 Security review — findings and evidence
 
@@ -698,3 +683,57 @@ read path validates. Tokens remain in memory only.
 ### Cost
 
 Initial JS 96.18 → **96.77 KB** gzipped (+0.59 KB). CSS 5.37 → **5.78 KB** (+0.41 KB).
+
+---
+
+## 13. Toolchain — Vite 8 migration
+
+The build was moved to **Vite 8** (from 5), which swaps Rollup for Rolldown and esbuild/Babel for
+oxc. That surfaced five startup warnings and two genuine bugs. All are fixed; `npm run dev` and
+`npm run build` are now warning-free.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `__dirname` unsupported by `configLoader: 'native'` | Vite 8 loads the config as a real ES module | `import.meta.dirname` |
+| `esbuild option was specified by "vite:react-babel"` | `@vitejs/plugin-react@4` targets Vite 5 | upgraded to `@vitejs/plugin-react@6.1.1` (peer `vite: ^8`) |
+| `Invalid input options … "jsx"` ×2 | same plugin passing Rollup-era options Rolldown rejects | same |
+| `optimizeDeps.rollupOptions is deprecated` | set by that plugin | same |
+| `manualChunks` type error | Rolldown accepts only the **function** form; the object form was a Rollup-ism | rewritten as a function matching on the exact package directory |
+
+**Do not switch to `@vitejs/plugin-react-oxc`** despite the terminal suggesting it. Version 0.4.3
+declares `vite: ^6.3.0 || ^7.0.0` — it does not support Vite 8. `plugin-react@6` is the correct
+target.
+
+### Two real bugs this surfaced
+
+**Invalid DOM nesting.** The dashboard tiles render their value in a `<p>`, and the loading
+`Skeleton` was a `<div>` — illegal, and React logged `validateDOMNesting` on every pending render.
+`Skeleton` is now a `<span>` with `display: block`, which is valid anywhere and looks identical, so
+the whole class of bug is closed rather than the one site.
+
+**Dev CSP blocked a worker.** Vite 8's dev pipeline spawns a Worker from a `blob:` URL. `worker-src`
+falls back to `script-src` when unset, so the browser blocked it and logged a violation on every
+load. The **dev** policy now allows `worker-src 'self' blob:`. Production is untouched and still has
+no `worker-src` at all, so it inherits the strict `script-src 'self'` — verified in the built HTML.
+
+### Also changed by the upgrade
+
+- **react-router-dom 6.30.6 → 7.18.3.** The `future={{ v7_* }}` flags are default behaviour in v7,
+  so those props were removed. This is also what cleared the audit (§4.4).
+- **Dependencies re-pinned.** The upgrade left `^` ranges on `vite` and `vitest`; §5.11 requires
+  exact pins, so every dependency is pinned again.
+- **`@types/node` 22.10.2 → 22.20.1**, because Vite 8 peers on `>=22.12.0`.
+- **`tsconfig.app.json` now includes `node` types** — the test files use `node:fs` and `__dirname`.
+
+### Bundle after the migration
+
+Initial JS **104.83 KB** gzipped (was 96.77 on Vite 5) — still comfortably inside the 200 KB budget.
+Rolldown chunks differently, and Recharts remains in two lazy chunks that are **not** in the eager
+graph. Verified against the built `index.html`.
+
+### One environment warning worth knowing
+
+`node -v` here reports **v20.19.5**, but Vite 8 requires `^22.12.0 || ^24.0.0 || >=26.0.0`. It runs,
+and npm prints an `EBADENGINE` warning. `package.json` now declares that engine range honestly rather
+than the old `>=20`. **Move the demo machine to Node 22.12+ before the meeting** — an unsupported
+runtime is not something to discover on stage.
