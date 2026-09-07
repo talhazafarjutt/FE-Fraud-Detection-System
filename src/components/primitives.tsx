@@ -77,8 +77,16 @@ export function Panel({
   );
 }
 
+/**
+ * A <span>, not a <div>, so a skeleton is legal wherever it lands — including
+ * inside a <p>, which is where the dashboard tiles put it. `display: block`
+ * keeps it looking identical. Rendering a div there is invalid HTML and React
+ * logs a validateDOMNesting error for it.
+ */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cx('animate-pulse bg-rule-soft', className)} aria-hidden="true" />;
+  return (
+    <span className={cx('block animate-pulse bg-rule-soft', className)} aria-hidden="true" />
+  );
 }
 
 export function EmptyState({ title, body }: { title: string; body?: string }) {

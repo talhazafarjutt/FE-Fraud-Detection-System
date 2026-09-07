@@ -36,6 +36,14 @@ function buildCsp({ apiOrigin, dev }: CspOptions): string {
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
+    /*
+     * Vite 8's dev pipeline spawns a Worker from a blob: URL. `worker-src`
+     * falls back to `script-src` when unset, so without this the browser blocks
+     * it and logs a CSP violation on every page load. Dev only — the production
+     * build creates no such worker and keeps `worker-src` inheriting the strict
+     * `script-src 'self'`.
+     */
+    ...(dev ? ["worker-src 'self' blob:"] : []),
     "object-src 'none'",
     "base-uri 'none'",
     "frame-ancestors 'none'",
