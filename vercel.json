@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://fraud-detection-system-fmh3.onrender.com/v1/:path*"
+    },
+    {
+      "source": "/readyz",
+      "destination": "https://fraud-detection-system-fmh3.onrender.com/readyz"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://fraud-detection-system-fmh3.onrender.com/healthz"
+    },
+    {
+      "source": "/((?!v1|readyz|healthz|assets).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
