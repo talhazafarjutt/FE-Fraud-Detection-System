@@ -16,6 +16,17 @@
     <!--CSP-->
     <meta name="referrer" content="no-referrer" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#22318E" />
+    <!--
+      SVG first (crisp at any size, every evergreen browser); .ico as the
+      fallback older browsers and OS chrome still ask for by default at
+      /favicon.ico. Built from the same tokens as the rest of the console:
+      --ultra background, --surface ring. See public/favicon.svg.
+    -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Civitas AI — Fraud Intelligence Console</title>
   </head>
   <body>
