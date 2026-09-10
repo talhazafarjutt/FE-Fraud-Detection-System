@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+# A new push to the same branch makes the in-flight run obsolete. Cancel it
+# rather than paying for a result nobody will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Must satisfy the engines field: Vite 8 and Vitest 5 both require
+          # ^22.12.0 || ^24.0.0 || >=26.0.0. Node 20 installs but warns
+          # EBADENGINE and is not a supported runtime for this toolchain.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: installs exactly the committed
+      # lockfile and fails if the two have drifted, which is the behaviour a
+      # pipeline wants.
+      - name: Install
+        run: npm ci
+
+      # Each gate is its own step so a red build says which one broke without
+      # anyone opening the log. `npm run lint` bundles lint + audit locally;
+      # here they are split for exactly that reason.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npx eslint . --ext .ts,.tsx --max-warnings 0
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      # Runs last and separately: an advisory published upstream can turn this
+      # red on a branch that changed nothing, and that should be legible as a
+      # dependency problem rather than looking like the PR broke the build.
+      - name: Audit production dependencies
+        run: npm run audit:prod

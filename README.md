@@ -765,3 +765,36 @@ graph. Verified against the built `index.html`.
 and npm prints an `EBADENGINE` warning. `package.json` now declares that engine range honestly rather
 than the old `>=20`. **Move the demo machine to Node 22.12+ before the meeting** — an unsupported
 runtime is not something to discover on stage.
+
+---
+
+## 14. CI
+
+`.github/workflows/ci.yml` runs on every push and pull request against `dev` and `main`.
+
+| Step | Command |
+|---|---|
+| Install | `npm ci` |
+| Typecheck | `npm run typecheck` |
+| Lint | `npx eslint . --ext .ts,.tsx --max-warnings 0` |
+| Test | `npm run test` |
+| Build | `npm run build` |
+| Audit | `npm run audit:prod` |
+
+Each gate is a separate step so a red build names the failure without anyone opening the log.
+Locally `npm run lint` bundles lint and audit together; CI splits them deliberately, because an
+advisory published upstream can turn the pipeline red on a branch that changed nothing, and that
+should read as a dependency problem rather than a broken PR.
+
+**Node 22.** The `engines` field requires `^22.12.0 || ^24.0.0 || >=26.0.0` — Vite 8 and Vitest 5
+both refuse anything older. Node 20 installs but warns `EBADENGINE` and is not a supported runtime
+for this toolchain.
+
+**`npm ci`, not `npm install`** — it installs exactly the committed lockfile and fails if the two
+have drifted, which is the behaviour a pipeline wants. Verified the lockfile is in sync
+(`npm ci --dry-run`) and that a cold `tsc -b --noEmit` with no cached `.tsbuildinfo` passes, since
+`npm ci` wipes `node_modules/.tmp` and CI is therefore always a cold typecheck.
+
+**No deploy job, on purpose.** Vercel deploys from its own Git integration. Adding a deploy step
+here would mean two systems racing to publish the same commit. CI is a quality gate; Vercel owns
+delivery.
