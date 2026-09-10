@@ -169,6 +169,34 @@ Two things worth knowing:
 Fonts are self-hosted via `@fontsource` precisely because of `font-src 'self'`. The console makes
 **zero third-party requests** — verified in the network panel.
 
+### Deploying to Vercel — `vercel.json`
+
+Vercel serves a static build as literal files by default. Confirmed against the live deployment
+before this file existed: `curl -I https://fe-fraud-detection-system.vercel.app/login` returned a
+**Vercel-native 404** (`content-type: text/plain`, `server: Vercel`) — the request never reached
+`index.html`, so React Router never got a chance to run and show its own `NotFound` screen. Any
+route besides `/` broke on a hard refresh or a direct link for the same reason.
+
+`vercel.json` fixes this with a catch-all rewrite (`/(.*) → /index.html`) — Vercel's documented
+behaviour is that an existing static file (`/assets/*.js`, `/favicon.svg`, …) is still served
+directly and only an unmatched path falls through to the rewrite, so this does not touch asset
+delivery.
+
+The same file also closes the header gap above: confirmed the live deployment was sending **none**
+of `Content-Security-Policy`, `X-Content-Type-Options` or `Referrer-Policy` before this existed —
+the meta tag covers CSP in-browser but Vercel's static host was never told to send the real headers
+the README already said were required. `vercel.json` now sends all three, with the same policy
+baked into the build's `<meta>` tag plus `frame-ancestors 'none'`, which only a header can carry.
+
+**This couples the header CSP's `connect-src` to `VITE_API_BASE_URL` at build time.** The value
+here (`https://fraud-detection-system-fmh3.onrender.com`) was read directly from the live build's
+own meta tag, so it matches today. If the API origin ever changes, update both — Vercel's project
+settings (`VITE_API_BASE_URL`) and the `connect-src` value in `vercel.json` — or a build will ship
+with a header CSP that disagrees with its own meta CSP.
+
+Takes effect on the **next deployment** — a config file alone does not change an already-served
+build. Redeploy after merging this.
+
 ### 4.4 Dependency audit — clean
 
 `npm audit --omit=dev` reports **0 vulnerabilities**, and it runs as part of `npm run lint`, so any
