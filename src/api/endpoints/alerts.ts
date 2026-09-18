@@ -42,10 +42,20 @@ export async function patchAlert(alertId: string, patch: AlertPatch): Promise<Al
   if (patch.status !== undefined) body['status'] = patch.status;
   if (patch.assigned_to !== undefined) body['assigned_to'] = patch.assigned_to;
   if (patch.note !== undefined && patch.note !== '') body['note'] = patch.note;
-  // §16.2: only ever sent with a terminal status. Against a backend that has
-  // not shipped §16.3 this is a 422 (extra_forbidden) — surfaced to the user
-  // rather than swallowed.
-  if (patch.feedback !== undefined) body['feedback'] = patch.feedback;
+  /**
+   * `feedback` is deliberately NOT sent.
+   *
+   * The verdict moved from the alert to the case: the deployed API rejects a
+   * `feedback` block on this endpoint with 422 "One or more fields are
+   * invalid." (verified against production). One scheme gets one judgement,
+   * because a verdict per alert would emit several correlated training labels
+   * for a single fraud event.
+   *
+   * The replacement is `PATCH /v1/cases/{id}`, which does not exist yet —
+   * see NOT_IMPLEMENTED.caseVerdict in src/api/unavailable.ts. Until it ships,
+   * the console records triage transitions here and shows the verdict step as
+   * pending rather than firing a request that cannot succeed.
+   */
 
   return requestData(`/v1/fraud-alerts/${alertId}`, {
     method: 'PATCH',

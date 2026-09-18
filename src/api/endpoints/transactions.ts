@@ -75,8 +75,11 @@ export async function listTransactions(
     transaction_type: filters.transaction_type,
     scoring_status: filters.scoring_status,
     has_alert: filters.has_alert === undefined ? undefined : String(filters.has_alert),
-    from: filters.from,
-    to: filters.to,
+    // VERIFIED: the API filters on `booked_from`/`booked_to`. It ignores
+    // unknown query params silently rather than erroring, so sending `from`/`to`
+    // looked like a working filter that never changed the result set.
+    booked_from: filters.booked_from,
+    booked_to: filters.booked_to,
     min_amount: filters.min_amount,
     max_amount: filters.max_amount,
     q: filters.q,

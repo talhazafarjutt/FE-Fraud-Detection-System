@@ -7,9 +7,16 @@ import { SeverityChip, StatusChip } from '@/components/Chips';
 import { Button, Eyebrow, SectionHeading, Skeleton } from '@/components/primitives';
 import { formatAbsolute, formatRelative, shortId, titleCase } from '@/lib/format';
 import { formatMoney } from '@/lib/money';
+import { riskDisplay } from '@/lib/risk';
 import { errorStatus } from '@/lib/problem';
 import { AlertActions } from './AlertActions';
 import { CaseTrail } from './CaseTrail';
+import {
+  DecisionReasons,
+  NetworkNeighbourhood,
+  SignalBars,
+  TriggeredRules,
+} from './EvidencePanels';
 import { ProbabilityDial } from './ProbabilityDial';
 import { alertKeys } from './queries';
 
@@ -101,7 +108,7 @@ export default function AlertDetailPage() {
 
         <div className="grid gap-px border border-rule bg-rule lg:grid-cols-[240px_minmax(0,1fr)]">
           <div className="flex items-center justify-center bg-surface p-8">
-            <ProbabilityDial probability={alert.fraud_probability} />
+            <ProbabilityDial risk={riskDisplay(alert.risk_score, alert.fraud_probability)} />
           </div>
 
           <div className="grid gap-px bg-rule sm:grid-cols-2">
@@ -163,10 +170,55 @@ export default function AlertDetailPage() {
         )}
       </section>
 
+      <section className="space-y-6">
+        <SectionHeading
+          index="03"
+          title="Signals"
+          hint="Model, rule, anomaly and network scored separately. An alert can be raised by network evidence alone even when the model score is low."
+        />
+        <SignalBars signals={alert.signals} />
+      </section>
+
+      <section className="space-y-6">
+        <SectionHeading index="04" title="Rules" hint="Hard rules that fired on this transaction." />
+        <TriggeredRules rules={alert.triggered_rules} />
+      </section>
+
+      <section className="space-y-6">
+        <SectionHeading
+          index="05"
+          title="Decision reasons"
+          hint="Why the engine reached this score, grouped by the part that spoke."
+        />
+        <DecisionReasons reasons={alert.decision_reasons} />
+      </section>
+
+      <section className="space-y-6">
+        <SectionHeading
+          index="06"
+          title="Network"
+          hint="The accounts immediately around this one."
+        />
+        <NetworkNeighbourhood network={alert.network} />
+      </section>
+
+      <section className="space-y-6">
+        <SectionHeading
+          index="07"
+          title="Provenance"
+          hint="The exact score this alert was raised from."
+        />
+        <dl className="grid gap-px border border-rule bg-rule sm:grid-cols-3">
+          <Fact label="Model" value={alert.model_name ?? '—'} mono />
+          <Fact label="Model version" value={alert.model_version ?? '—'} mono />
+          <Fact label="Risk engine" value={alert.risk_engine_version ?? 'Not recorded'} mono />
+        </dl>
+      </section>
+
       <section className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
           <SectionHeading
-            index="03"
+            index="08"
             title="Case trail"
             hint="Every state change, with the actor who made it and when."
           />

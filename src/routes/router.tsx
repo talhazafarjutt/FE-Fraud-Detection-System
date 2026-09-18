@@ -11,8 +11,19 @@ const LoginPage = lazy(() => import('@/features/auth/LoginPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const AlertQueuePage = lazy(() => import('@/features/alerts/AlertQueuePage'));
 const AlertDetailPage = lazy(() => import('@/features/alerts/AlertDetailPage'));
-const TransactionsPage = lazy(() => import('@/features/transactions/TransactionsPage'));
+const TransactionListPage = lazy(() => import('@/features/transactions/TransactionListPage'));
+const TransactionSubmitPage = lazy(() => import('@/features/transactions/TransactionsPage'));
 const UsersPage = lazy(() => import('@/features/users/UsersPage'));
+
+// The investigation layer. /v1/cases is not deployed, so these render the
+// pending panel — see src/api/unavailable.ts.
+const CasesPage = lazy(() => import('@/features/cases/CasesPage'));
+const InvestigationsPage = lazy(() => import('@/features/cases/InvestigationsPage'));
+
+// §3 stubs: no endpoint exists for any of these.
+const EntitiesPage = lazy(() => import('@/features/stubs/EntitiesPage'));
+const NetworkExplorerPage = lazy(() => import('@/features/stubs/NetworkExplorerPage'));
+const AuditLogPage = lazy(() => import('@/features/stubs/AuditLogPage'));
 
 const simulatorEnabled = import.meta.env.VITE_ENABLE_SIMULATOR === 'true';
 
@@ -46,8 +57,17 @@ export const router = createBrowserRouter([
       { path: 'alerts/:alertId', element: guarded('alerts:read', <AlertDetailPage />, 'Alert') },
       {
         path: 'transactions',
-        element: guarded('transactions:read', <TransactionsPage />, 'Transactions'),
+        element: guarded('transactions:read', <TransactionListPage />, 'Transactions'),
       },
+      {
+        path: 'transactions/submit',
+        element: guarded('transactions:read', <TransactionSubmitPage />, 'Submit a transaction'),
+      },
+      { path: 'investigations', element: guarded('alerts:read', <InvestigationsPage />, 'Investigations') },
+      { path: 'cases', element: guarded('alerts:read', <CasesPage />, 'Cases') },
+      { path: 'network', element: guarded('alerts:read', <NetworkExplorerPage />, 'Network explorer') },
+      { path: 'entities', element: guarded('alerts:read', <EntitiesPage />, 'Entities') },
+      { path: 'audit', element: guarded('alerts:read', <AuditLogPage />, 'Audit log') },
       { path: 'users', element: guarded('users:manage', <UsersPage />, 'User administration') },
       // Tree-shaken out entirely unless the env flag is on at build time.
       ...(SimulatorPage

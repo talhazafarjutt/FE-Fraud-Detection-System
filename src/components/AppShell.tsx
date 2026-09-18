@@ -12,12 +12,28 @@ interface NavItem {
   label: string;
   /** Nav items are driven by scope. An item the caller cannot use is absent. */
   scope: string;
+  /** True when the section's backend endpoint does not exist yet. */
+  pending?: boolean;
 }
 
+/**
+ * The nine sections of the V1 flow, in the order a case actually moves:
+ * a transaction is detected, raises an alert, becomes an investigation, and
+ * ends as a closed case.
+ *
+ * `pending` marks a section whose endpoint is not deployed. It still appears —
+ * hiding it would misrepresent the product — but it is dimmed and labelled, so
+ * nobody clicks expecting data.
+ */
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', scope: 'alerts:read' },
   { to: '/alerts', label: 'Alerts', scope: 'alerts:read' },
+  { to: '/investigations', label: 'Investigations', scope: 'alerts:read', pending: true },
+  { to: '/network', label: 'Network', scope: 'alerts:read', pending: true },
+  { to: '/entities', label: 'Entities', scope: 'alerts:read', pending: true },
   { to: '/transactions', label: 'Transactions', scope: 'transactions:read' },
+  { to: '/cases', label: 'Cases', scope: 'alerts:read', pending: true },
+  { to: '/audit', label: 'Audit', scope: 'alerts:read', pending: true },
   { to: '/users', label: 'Users', scope: 'users:manage' },
 ];
 
@@ -58,6 +74,7 @@ export function AppShell() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                title={item.pending ? `${item.label} needs a backend endpoint` : undefined}
                 className={({ isActive }) =>
                   cx(
                     'font-mono text-[11px] uppercase tracking-label transition-colors',
@@ -66,6 +83,13 @@ export function AppShell() {
                 }
               >
                 {item.label}
+                {/* A dot, not a hidden item: the section is part of the product,
+                    it just has nothing to show yet. */}
+                {item.pending ? (
+                  <span className="ml-1 text-amber" aria-label=" (not available yet)">
+                    ·
+                  </span>
+                ) : null}
               </NavLink>
             ))}
           </nav>

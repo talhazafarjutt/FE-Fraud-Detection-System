@@ -166,6 +166,20 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
     model_name: 'fixture-rules',
     model_version: 'fixture-v1',
     model_decision: probability >= 0.9 ? 'BLOCK' : probability >= 0.7 ? 'REVIEW' : 'ALLOW',
+    // V1 fields. The deployed backend returns null for all of these — the
+    // fixtures mirror that so the offline demo shows the same "derived" and
+    // "not available" states a reviewer sees against the real API, rather than
+    // a rosier picture the backend cannot yet produce.
+    risk_score: null,
+    case_id: null,
+    score_id: null,
+    provenance: null,
+    risk_engine_version: null,
+    signals: null,
+    triggered_rules: [],
+    network: null,
+    anomaly: null,
+    decision_reasons: [],
   };
 });
 

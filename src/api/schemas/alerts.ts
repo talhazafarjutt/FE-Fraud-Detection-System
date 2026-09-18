@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { feedbackSchema } from './feedback';
 import {
   alertStatusSchema,
   decimalString,
@@ -10,19 +9,38 @@ import {
   uuid,
 } from './common';
 
-export const alertSchema = z.object({
-  id: uuid,
-  transaction_id: uuid,
-  status: looseAlertStatus,
-  severity: looseAlertSeverity,
-  fraud_probability: z.number(),
-  team: z.string(),
-  assigned_to: uuid.nullable(),
-  opened_at: isoDateTime,
-  closed_at: isoDateTime.nullable(),
-  amount: decimalString.nullable().default(null),
-  currency: z.string().nullable().default(null),
-});
+/**
+ * `.passthrough()` throughout: the risk engine is mid-rollout and the backend is
+ * adding fields to these payloads. Stripping unknown keys is how `risk_score`
+ * and `alert_severity` went missing from the transaction table without any
+ * error — a new field should survive to the UI, not vanish silently.
+ */
+export const alertSchema = z
+  .object({
+    id: uuid,
+    transaction_id: uuid,
+    status: looseAlertStatus,
+    severity: looseAlertSeverity,
+    /**
+     * VERIFIED: `fraud_probability` (0–1) is still returned and is the only
+     * populated score. `risk_score` (0–100) is the V1 replacement but is null on
+     * every alert the deployed backend has — all of them come from `stub-rules`.
+     * Both are optional so the UI can prefer the score and fall back honestly.
+     */
+    fraud_probability: z.number().nullable().default(null),
+    risk_score: z.number().nullable().default(null),
+    team: z.string(),
+    assigned_to: uuid.nullable(),
+    opened_at: isoDateTime,
+    closed_at: isoDateTime.nullable(),
+    amount: decimalString.nullable().default(null),
+    currency: z.string().nullable().default(null),
+    /** Present in the V1 contract; absent from every deployed response so far. */
+    case_id: uuid.nullable().default(null),
+    score_id: uuid.nullable().default(null),
+    provenance: z.string().nullable().default(null),
+  })
+  .passthrough();
 export type Alert = z.infer<typeof alertSchema>;
 
 export const alertEventSchema = z.object({
@@ -35,13 +53,85 @@ export const alertEventSchema = z.object({
 });
 export type AlertEvent = z.infer<typeof alertEventSchema>;
 
-export const alertDetailSchema = alertSchema.extend({
-  events: z.array(alertEventSchema).default([]),
-  explanation: looseExplanationSchema,
-  model_name: z.string().nullable().default(null),
-  model_version: z.string().nullable().default(null),
-  model_decision: z.string().nullable().default(null),
-});
+/* ------------------------------------------------------------------ *
+ * Risk engine payload.
+ *
+ * These keys ARE present on the deployed alert detail, but every one of them is
+ * null or empty on all 15 alerts sampled — the engine is deployed but not yet
+ * producing. Each is nullable so the page renders what exists and says plainly
+ * when a section has nothing, rather than crashing or inventing a value.
+ * ------------------------------------------------------------------ */
+
+export const signalsSchema = z
+  .object({
+    model_score: z.number().nullable().default(null),
+    rule_score: z.number().nullable().default(null),
+    anomaly_score: z.number().nullable().default(null),
+    network_score: z.number().nullable().default(null),
+    weighted_score: z.number().nullable().default(null),
+    rule_floor_applied: z.boolean().default(false),
+  })
+  .passthrough();
+export type Signals = z.infer<typeof signalsSchema>;
+
+export const triggeredRuleSchema = z
+  .object({
+    rule: z.string(),
+    severity: z.string().nullable().default(null),
+    description: z.string().nullable().default(null),
+  })
+  .passthrough();
+export type TriggeredRule = z.infer<typeof triggeredRuleSchema>;
+
+export const decisionReasonSchema = z
+  .object({
+    source: z.string(),
+    code: z.string().nullable().default(null),
+    description: z.string().nullable().default(null),
+  })
+  .passthrough();
+export type DecisionReason = z.infer<typeof decisionReasonSchema>;
+
+export const networkSchema = z
+  .object({
+    network_score: z.number().nullable().default(null),
+    indicators: z.array(z.unknown()).default([]),
+    evidence: z.array(z.unknown()).default([]),
+    neighborhood: z
+      .object({
+        nodes: z.array(z.unknown()).default([]),
+        edges: z.array(z.unknown()).default([]),
+      })
+      .passthrough()
+      .nullable()
+      .default(null),
+  })
+  .passthrough();
+export type AlertNetwork = z.infer<typeof networkSchema>;
+
+export const anomalySchema = z
+  .object({
+    is_anomaly: z.boolean().nullable().default(null),
+    anomaly_score: z.number().nullable().default(null),
+    threshold: z.number().nullable().default(null),
+  })
+  .passthrough();
+
+export const alertDetailSchema = alertSchema
+  .extend({
+    events: z.array(alertEventSchema).default([]),
+    explanation: looseExplanationSchema,
+    model_name: z.string().nullable().default(null),
+    model_version: z.string().nullable().default(null),
+    model_decision: z.string().nullable().default(null),
+    risk_engine_version: z.string().nullable().default(null),
+    signals: signalsSchema.nullable().default(null),
+    triggered_rules: z.array(triggeredRuleSchema).default([]),
+    network: networkSchema.nullable().default(null),
+    anomaly: anomalySchema.nullable().default(null),
+    decision_reasons: z.array(decisionReasonSchema).default([]),
+  })
+  .passthrough();
 export type AlertDetail = z.infer<typeof alertDetailSchema>;
 
 export const alertPageSchema = z.object({
@@ -55,8 +145,10 @@ export const alertPatchSchema = z.object({
   status: alertStatusSchema.optional(),
   assigned_to: z.string().uuid().nullable().optional(),
   note: z.string().max(2000, 'Notes are limited to 2000 characters.').optional(),
-  /** §16.2 — permitted only alongside a terminal status. */
-  feedback: feedbackSchema.optional(),
+  /**
+   * No `feedback` key: the deployed API 422s it on this endpoint. The verdict
+   * now belongs to the case — see endpoints/alerts.ts for the full note.
+   */
 });
 export type AlertPatch = z.infer<typeof alertPatchSchema>;
 

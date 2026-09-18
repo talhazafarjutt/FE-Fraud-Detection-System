@@ -5,7 +5,7 @@ import { tokenStore } from '@/auth/tokenStore';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button, EmptyState, Eyebrow, Skeleton } from '@/components/primitives';
 import { errorStatus } from '@/lib/problem';
-import { formatProbability } from '@/lib/risk';
+import { riskDisplay } from '@/lib/risk';
 import { AlertFilterBar } from './AlertFilterBar';
 import { AlertRow } from './AlertRow';
 import { prefetchAlert, useAlertsQuery } from './queries';
@@ -13,7 +13,7 @@ import { useAlertFilters } from './useAlertFilters';
 
 const COLUMNS = [
   { label: 'Severity', align: 'left' },
-  { label: 'Probability', align: 'right' },
+  { label: 'Risk', align: 'right' },
   { label: 'Amount', align: 'right' },
   { label: 'Status', align: 'left' },
   { label: 'Team', align: 'left' },
@@ -76,8 +76,14 @@ export default function AlertQueuePage() {
     const severe = alerts.filter(
       (alert) => alert.severity === 'HIGH' || alert.severity === 'CRITICAL',
     ).length;
-    const med = median(alerts.map((alert) => alert.fraud_probability));
-    return { open, severe, median: med };
+    // Only alerts that actually carry a score count toward the median — a null
+    // score is "not scored", not a zero, and averaging it in would drag the
+    // figure down and misrepresent the queue.
+    const scores = alerts
+      .map((alert) => riskDisplay(alert.risk_score, alert.fraud_probability))
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .map((r) => r.value);
+    return { open, severe, median: median(scores), scoredCount: scores.length };
   }, [alerts]);
 
   if (isError) {
@@ -118,10 +124,9 @@ export default function AlertQueuePage() {
           <Tile label="Open alerts" value={isPending ? null : String(stats.open)} />
           <Tile label="High or critical" value={isPending ? null : String(stats.severe)} />
           <Tile
-            label="Median probability"
-            value={
-              isPending ? null : stats.median === null ? '—' : `${formatProbability(stats.median)}%`
-            }
+            label="Median risk"
+            value={isPending ? null : stats.median === null ? '—' : String(Math.round(stats.median))}
+            
           />
         </dl>
         <p className="mt-2 font-mono text-[10px] uppercase tracking-tag text-ink-3">

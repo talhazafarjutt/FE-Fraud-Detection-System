@@ -186,7 +186,7 @@ export const handlers = [
     if (status) visible = visible.filter((alert) => alert.status === status);
     if (severity) visible = visible.filter((alert) => alert.severity === severity);
     if (minProbability > 0) {
-      visible = visible.filter((alert) => alert.fraud_probability >= minProbability);
+      visible = visible.filter((alert) => (alert.fraud_probability ?? 0) >= minProbability);
     }
 
     visible = [...visible].sort((a, b) => Date.parse(b.opened_at) - Date.parse(a.opened_at));
@@ -315,7 +315,7 @@ export const handlers = [
         alert_id: alert.id,
         transaction_id: alert.transaction_id,
         reviewer_id: session.subject,
-        model_probability: alert.fraud_probability,
+        model_probability: alert.fraud_probability ?? 0,
         model_version: alert.model_version,
         created_at: new Date().toISOString(),
       });
@@ -388,6 +388,17 @@ export const handlers = [
         model_name: risk.model_name,
         model_version: risk.model_version,
         model_decision: risk.model_decision,
+        // Same V1 fields the real backend leaves null.
+        risk_score: null,
+        case_id: null,
+        score_id: null,
+        provenance: null,
+        risk_engine_version: null,
+        signals: null,
+        triggered_rules: [],
+        network: null,
+        anomaly: null,
+        decision_reasons: [],
       };
       alerts.unshift(created);
       alertRef = { alert_id: created.id, status: 'OPEN', severity: created.severity };

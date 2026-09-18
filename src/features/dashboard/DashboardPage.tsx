@@ -5,6 +5,7 @@ import { tokenStore } from '@/auth/tokenStore';
 import { Button, Eyebrow, Skeleton } from '@/components/primitives';
 import { errorStatus } from '@/lib/problem';
 import { formatAmount } from '@/lib/money';
+import { riskDisplay } from '@/lib/risk';
 import {
   ModelHealth,
   MyQueue,
@@ -48,7 +49,11 @@ export default function DashboardPage() {
     );
     const oldestHours =
       oldest === null ? null : Math.floor((Date.now() - Date.parse(oldest)) / 3_600_000);
-    const top = [...open].sort((a, b) => b.fraud_probability - a.fraud_probability).slice(0, 10);
+    // Sort by whichever score exists; unscored alerts sink rather than sorting
+    // as if they were zero-risk.
+    const scoreOf = (a: (typeof open)[number]) =>
+      riskDisplay(a.risk_score, a.fraud_probability)?.value ?? -1;
+    const top = [...open].sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 10);
     return { open, mine, unassigned, oldestHours, top };
   }, [alerts, me]);
 

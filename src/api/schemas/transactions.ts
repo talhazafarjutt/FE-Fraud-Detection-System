@@ -215,12 +215,40 @@ export type Transaction = z.infer<typeof transactionSchema>;
  * not.
  * ------------------------------------------------------------------ */
 
-export const transactionListItemSchema = transactionSchema.extend({
-  fraud_probability: z.number().nullable().default(null),
-  risk_level: z.string().nullable().default(null),
-  alert_id: z.string().uuid().nullable().default(null),
-  alert_status: z.string().nullable().default(null),
-});
+/**
+ * The LIST row is a different, slimmer shape from the detail record — it omits
+ * `mcc`, `sender_balance_before` and `receiver_balance_before`. Extending the
+ * detail schema made those required, so every response failed to parse and the
+ * table sat on "Loading" forever with a 200 in the network panel and nothing in
+ * the console. Declared standalone for that reason; do not re-base it on
+ * `transactionSchema`.
+ *
+ * VERIFIED against the deployed API: every field below is returned on every row.
+ * `.passthrough()` keeps anything the backend adds later instead of silently
+ * dropping it — which is how `risk_score` and `alert_severity` went missing.
+ */
+export const transactionListItemSchema = z
+  .object({
+    id: uuid,
+    external_ref: z.string().nullable().default(null),
+    amount: z.string(),
+    currency: z.string(),
+    booked_at: isoDateTime,
+    transaction_type: z.string(),
+    scoring_status: z.string(),
+    team: z.string().nullable().default(null),
+    src_account_last4: z.string().nullable().default(null),
+    dst_account_last4: z.string().nullable().default(null),
+    /** 0–100. Null on every row the deployed backend currently returns. */
+    risk_score: z.number().nullable().default(null),
+    risk_level: z.string().nullable().default(null),
+    alert_id: z.string().uuid().nullable().default(null),
+    alert_status: z.string().nullable().default(null),
+    alert_severity: z.string().nullable().default(null),
+    /** Still returned, and currently the only populated score. */
+    fraud_probability: z.number().nullable().default(null),
+  })
+  .passthrough();
 export type TransactionListItem = z.infer<typeof transactionListItemSchema>;
 
 export const transactionPageSchema = z.object({
@@ -238,8 +266,9 @@ export interface TransactionFilters {
   scoring_status?: string;
   /** true = flagged only, false = clean only, undefined = everything. */
   has_alert?: boolean;
-  from?: string;
-  to?: string;
+  /** The API's real parameter names — see the note in endpoints/transactions.ts. */
+  booked_from?: string;
+  booked_to?: string;
   min_amount?: string;
   max_amount?: string;
   q?: string;

@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react';
 import type { Alert } from '@/api/schemas/alerts';
 import { cx } from '@/components/primitives';
-import { RISK_THRESHOLDS } from '@/lib/risk';
+import { RISK_THRESHOLDS, riskDisplay } from '@/lib/risk';
 
-const STOPS = [0.5, 0.6, 0.7, 0.8, 0.9] as const;
+/**
+ * Stops and the slider are on the 0–100 risk scale, matching `risk_score`.
+ * `RISK_THRESHOLDS` is still expressed 0–1, so it is scaled once here rather
+ * than comparing two different units — which silently made every case look
+ * above threshold.
+ */
+const STOPS = [50, 60, 70, 80, 90] as const;
+const LIVE_THRESHOLD = RISK_THRESHOLDS.HIGH * 100;
 
 /**
  * §15.4 threshold explorer.
@@ -21,16 +28,19 @@ const STOPS = [0.5, 0.6, 0.7, 0.8, 0.9] as const;
  * and risk conversation.
  */
 export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
-  const [threshold, setThreshold] = useState<number>(RISK_THRESHOLDS.HIGH);
+  const [threshold, setThreshold] = useState<number>(LIVE_THRESHOLD);
 
   const closed = useMemo(
     () =>
       alerts
         .filter((a) => a.status === 'CONFIRMED_FRAUD' || a.status === 'FALSE_POSITIVE')
+        // Skip alerts with no score at all: they cannot be replayed against a
+        // threshold, and counting them as zero would invent a decision.
         .map((a) => ({
-          probability: a.fraud_probability,
+          probability: riskDisplay(a.risk_score, a.fraud_probability)?.value ?? null,
           confirmed: a.status === 'CONFIRMED_FRAUD',
-        })),
+        }))
+        .filter((c): c is { probability: number; confirmed: boolean } => c.probability !== null),
     [alerts],
   );
 
@@ -88,20 +98,20 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
           className="mono-label mb-3 flex items-center justify-between text-ink-3"
         >
           <span>Alert threshold</span>
-          <span className="num tabular-nums text-ink">{threshold.toFixed(2)}</span>
+          <span className="num tabular-nums text-ink">{Math.round(threshold)}</span>
         </label>
         <input
           id="threshold"
           type="range"
-          min={0.3}
-          max={0.95}
-          step={0.01}
+          min={30}
+          max={95}
+          step={1}
           value={threshold}
           onChange={(event) => setThreshold(Number(event.target.value))}
           className="w-full accent-[color:var(--ultra)]"
         />
         <p className="mt-2 font-mono text-[10px] uppercase tracking-tag text-ink-3">
-          Live threshold is {RISK_THRESHOLDS.HIGH.toFixed(2)}
+          Live threshold is {LIVE_THRESHOLD}
         </p>
       </div>
 
@@ -142,12 +152,12 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
                 key={stop.cut}
                 className={cx(
                   'border-b border-rule-soft',
-                  stop.cut === RISK_THRESHOLDS.HIGH && 'bg-paper',
+                  stop.cut === LIVE_THRESHOLD && 'bg-paper',
                 )}
               >
                 <td className="num py-3 pr-4 font-mono text-[12px] tabular-nums text-ink">
-                  {stop.cut.toFixed(2)}
-                  {stop.cut === RISK_THRESHOLDS.HIGH ? (
+                  {stop.cut}
+                  {stop.cut === LIVE_THRESHOLD ? (
                     <span className="ml-2 text-[10px] uppercase tracking-tag text-ink-3">live</span>
                   ) : null}
                 </td>

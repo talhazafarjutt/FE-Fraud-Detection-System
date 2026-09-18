@@ -6,7 +6,7 @@ import { SeverityChip, StatusChip } from '@/components/Chips';
 import { Skeleton, cx } from '@/components/primitives';
 import { formatRelative, shortId } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
-import { RISK_THRESHOLDS, formatProbability } from '@/lib/risk';
+import { RISK_THRESHOLDS, riskDisplay } from '@/lib/risk';
 
 /**
  * §15.5: every number carries its time window. A tile reading "512" with no
@@ -224,7 +224,7 @@ export function MyQueue({ alerts }: { alerts: readonly Alert[] }) {
       <table className="w-full min-w-[720px] border-collapse">
         <thead>
           <tr className="border-b border-rule">
-            {['Severity', 'Probability', 'Amount', 'Status', 'Opened', ''].map((label, index) => (
+            {['Severity', 'Risk', 'Amount', 'Status', 'Opened', ''].map((label, index) => (
               <th
                 key={label || index}
                 scope="col"
@@ -248,8 +248,7 @@ export function MyQueue({ alerts }: { alerts: readonly Alert[] }) {
               </td>
               <td className="py-3 pr-4 text-right">
                 <span className="num font-mono text-[12px] tabular-nums text-ink">
-                  {formatProbability(alert.fraud_probability)}
-                  <span className="ml-0.5 text-ink-3">%</span>
+                  {riskDisplay(alert.risk_score, alert.fraud_probability)?.value ?? '—'}
                 </span>
               </td>
               <td className="py-3 pr-4 text-right">

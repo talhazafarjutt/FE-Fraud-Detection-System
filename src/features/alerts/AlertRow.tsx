@@ -4,7 +4,7 @@ import type { Alert } from '@/api/schemas/alerts';
 import { SeverityChip, StatusChip } from '@/components/Chips';
 import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
-import { BAND_HEX, bandFor, formatProbability } from '@/lib/risk';
+import { BAND_HEX, riskDisplay } from '@/lib/risk';
 
 interface Props {
   alert: Alert;
@@ -16,8 +16,9 @@ interface Props {
  * so a new page arriving does not re-render rows that are already on screen.
  */
 export const AlertRow = memo(function AlertRow({ alert, onHover }: Props) {
-  const band = bandFor(alert.fraud_probability);
-  const percent = formatProbability(alert.fraud_probability);
+  // V1 headline is risk_score, 0–100 and never a percentage. Falls back to the
+  // legacy probability, which is all the deployed backend currently populates.
+  const risk = riskDisplay(alert.risk_score, alert.fraud_probability);
 
   return (
     <tr
@@ -30,23 +31,36 @@ export const AlertRow = memo(function AlertRow({ alert, onHover }: Props) {
       </td>
 
       <td className="py-3 pr-4">
-        <div className="flex items-center justify-end gap-3">
-          {/* A bar plus the figure: the shape reads at a glance from the back
-              of a room, the number is there for the person leaning in. */}
-          <span className="h-[6px] w-24 bg-rule-soft" aria-hidden="true">
+        {risk === null ? (
+          <span className="block text-right font-mono text-[11px] uppercase tracking-tag text-ink-3">
+            Not scored
+          </span>
+        ) : (
+          <div className="flex items-center justify-end gap-3">
+            {/* A bar plus the figure: the shape reads at a glance from the back
+                of a room, the number is there for the person leaning in. */}
+            <span className="h-[6px] w-24 bg-rule-soft" aria-hidden="true">
+              <span
+                className="block h-full"
+                style={{
+                  width: `${Math.min(100, risk.value)}%`,
+                  background: BAND_HEX[risk.band],
+                }}
+              />
+            </span>
             <span
-              className="block h-full"
-              style={{
-                width: `${Math.min(100, alert.fraud_probability * 100)}%`,
-                background: BAND_HEX[band],
-              }}
-            />
-          </span>
-          <span className="num w-14 text-right font-mono text-[12px] tabular-nums text-ink">
-            {percent}
-            <span className="ml-0.5 text-ink-3">%</span>
-          </span>
-        </div>
+              className="num w-14 text-right font-mono text-[12px] tabular-nums text-ink"
+              title={
+                risk.derived
+                  ? 'Derived from fraud_probability — the risk engine has not scored this alert.'
+                  : 'risk_score, 0–100'
+              }
+            >
+              {risk.value}
+              {risk.derived ? <span className="ml-0.5 text-ink-3">*</span> : null}
+            </span>
+          </div>
+        )}
       </td>
 
       <td className="py-3 pr-4 text-right">
