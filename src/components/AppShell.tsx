@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Suspense } from 'react';
-import { API_BASE_LABEL } from '@/api/client';
+import { API_BASE_LABEL, API_BASE_PROBLEM } from '@/api/client';
 import { teamLabel } from '@/lib/format';
 import { useAuth } from '@/auth/AuthProvider';
 import { roleLabel } from '@/auth/tokenStore';
@@ -151,6 +151,14 @@ export function AppShell() {
  * the wrong backend, and nothing on screen said so.
  */
 function BaseUrlBadge() {
+  if (API_BASE_PROBLEM !== null) {
+    return (
+      <p className="shell py-2 font-mono text-[11px] text-carmine">
+        API not configured — VITE_API_BASE_URL is unset, so every request will fail. Nothing on
+        this screen is live.
+      </p>
+    );
+  }
   return (
     <p className="shell py-2 font-mono text-[11px] text-ink-3">
       API <span className="text-ink-2">{API_BASE_LABEL}</span>

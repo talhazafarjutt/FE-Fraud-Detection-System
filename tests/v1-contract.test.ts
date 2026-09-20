@@ -32,6 +32,8 @@ describe('transaction rows keep every field the API returns', () => {
     team: 'team-alpha',
     src_account_last4: '1374',
     dst_account_last4: '9682',
+    src_account_id: '9c497b11-8a6e-4abe-bcbe-a009b4bec033',
+    dst_account_id: '11ec6a46-c438-4e84-a48e-a46d10ea25e6',
     mcc: 6011,
     sender_balance_before: '9000.00',
     receiver_balance_before: '0.00',
@@ -42,6 +44,20 @@ describe('transaction rows keep every field the API returns', () => {
     alert_severity: 'CRITICAL',
     fraud_probability: 0.84,
   };
+
+  it('keeps the account ids the graph is entered by', () => {
+    // Added by the backend mid-build and caught by the committed-schema drift
+    // check. Undeclared fields are stripped by Zod, which is how columns go
+    // blank with nothing in the console.
+    const parsed = transactionListItemSchema.parse(row);
+    expect(parsed.src_account_id).toBe('9c497b11-8a6e-4abe-bcbe-a009b4bec033');
+    expect(parsed.dst_account_id).toBe('11ec6a46-c438-4e84-a48e-a46d10ea25e6');
+  });
+
+  it('still parses the older contract, which sends neither', () => {
+    const { src_account_id: _s, dst_account_id: _d, ...older } = row;
+    expect(() => transactionListItemSchema.parse(older)).not.toThrow();
+  });
 
   it('keeps risk_score and alert_severity', () => {
     // Both were being stripped by the schema, so the columns rendered blank

@@ -170,6 +170,26 @@ export function isNetworkError(err: unknown): err is NetworkError {
   return err instanceof NetworkError;
 }
 
+/**
+ * The build does not know which backend to call.
+ *
+ * Distinct from a network error: nothing was attempted, and no amount of
+ * retrying or restarting the API will help. It is a deployment setting, and the
+ * message says which one — so this renders as instructions, not as an outage.
+ */
+export class ConfigError extends Error {
+  readonly status = -2;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigError';
+  }
+}
+
+export function isConfigError(err: unknown): err is ConfigError {
+  return err instanceof ConfigError;
+}
+
 /* ------------------------------------------------------------------ *
  * The five states
  *
@@ -178,11 +198,14 @@ export function isNetworkError(err: unknown): err is NetworkError {
  * misconfigured base URL look identical to a permissions problem.
  * ------------------------------------------------------------------ */
 
-export type ApiFailureKind = 'network' | 'http' | 'parse';
+export type ApiFailureKind = 'config' | 'network' | 'http' | 'parse';
 
 export interface ApiFailure {
   kind: ApiFailureKind;
-  /** HTTP status, or -1 for a network error and 0 for a parse failure. */
+  /**
+   * HTTP status; -1 for a network error, -2 for a misconfiguration, 0 for a
+   * parse failure.
+   */
   status: number;
   title: string;
   detail: string;
@@ -216,6 +239,15 @@ function readFieldErrors(problem: Problem): { field: string; message: string }[]
 
 /** Turn any thrown value into one of the five states the UI knows how to render. */
 export function describeFailure(err: unknown): ApiFailure {
+  if (err instanceof ConfigError) {
+    return {
+      kind: 'config',
+      status: -2,
+      title: 'This build is not configured',
+      detail: err.message,
+    };
+  }
+
   if (err instanceof NetworkError) {
     return {
       kind: 'network',

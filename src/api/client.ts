@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { tokenStore } from '@/auth/tokenStore';
-import { ApiError, NetworkError, SchemaError, parseProblem } from '@/lib/problem';
+import { ApiError, ConfigError, NetworkError, SchemaError, parseProblem } from '@/lib/problem';
 import { tokenResponseSchema } from './schemas/auth';
 import type { ApiRoute } from './route';
 
@@ -10,33 +10,60 @@ export type { ApiRoute } from './route';
 /**
  * Where requests go — resolved once, printed in the header.
  *
- * Three cases, and they are deliberately not the same:
- *   - UNSET        → throw at boot. A console that silently invents a backend
- *                    is how a demo ends up pointed at the wrong environment.
- *                    Never fall back to a production URL.
+ * Three cases, deliberately not the same:
+ *   - UNSET        → misconfigured. No fallback is invented, and in particular
+ *                    never a production URL.
  *   - EMPTY STRING → same-origin. Requests go to `/v1/...` on whatever host is
  *                    serving the app, which the Vite dev proxy (and the hosting
- *                    rewrite) forwards to the API. This is an explicit choice
+ *                    rewrite) forwards to the API. That is an explicit choice
  *                    made in `.env`, not a missing value, and it means the
  *                    browser never performs a cross-origin preflight.
  *   - A URL        → used as-is.
+ *
+ * THIS MUST NOT THROW WHILE THE MODULE IS EVALUATING.
+ *
+ * It used to, and that turned "misconfigured" into something far worse than a
+ * bad config: the throw happened during import, so the whole module graph died
+ * and the app rendered a BLANK PAGE with one line in the console. A build
+ * missing the variable — a CI runner with no `.env`, a hosting dashboard where
+ * nobody set it — looked like a crashed application rather than a setting
+ * somebody forgot.
+ *
+ * "Fail visibly" has to mean visible ON SCREEN. So the problem is recorded here
+ * and raised at the point a request is actually attempted, where the UI can
+ * catch it and say which variable is missing.
  */
-function resolveBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL;
-  if (raw === undefined) {
-    throw new Error(
-      'VITE_API_BASE_URL is not set. Copy .env.example to .env. Leave it empty to use the ' +
-        'dev proxy, or point it at your API (http://localhost:8000 for a local backend).',
-    );
-  }
-  return raw.trim().replace(/\/$/, '');
+export interface BaseUrlResolution {
+  baseUrl: string;
+  /** Null when configured. A sentence naming the fix when it is not. */
+  problem: string | null;
 }
 
-export const API_BASE_URL = resolveBaseUrl();
+export function resolveBaseUrl(raw: string | undefined): BaseUrlResolution {
+  if (raw === undefined) {
+    return {
+      baseUrl: '',
+      problem:
+        'VITE_API_BASE_URL is not set, so this build does not know which backend to call. ' +
+        'Copy .env.example to .env — leave the value empty to use the dev proxy, or point it ' +
+        'at your API (http://localhost:8000 for a local backend). On a hosting platform, set ' +
+        'it in the project environment settings and redeploy.',
+    };
+  }
+  return { baseUrl: raw.trim().replace(/\/$/, ''), problem: null };
+}
+
+const RESOLVED = resolveBaseUrl(import.meta.env.VITE_API_BASE_URL);
+
+export const API_BASE_URL = RESOLVED.baseUrl;
+
+/** Null when the base URL is usable; a sentence to render when it is not. */
+export const API_BASE_PROBLEM = RESOLVED.problem;
 
 /** What to show a human. An empty base URL is same-origin, not "nowhere". */
-export const API_BASE_LABEL =
-  API_BASE_URL === ''
+export const API_BASE_LABEL = RESOLVED.problem
+  ? 'not configured'
+  : API_BASE_URL === ''
     ? `${typeof window === 'undefined' ? 'this origin' : window.location.origin} (proxied)`
     : API_BASE_URL;
 
@@ -57,6 +84,9 @@ export function apiUrl(path: string): string {
  * different things all the way up to the UI.
  */
 async function fetchOrNetworkError(url: string, init: RequestInit): Promise<Response> {
+  // Raised here rather than at import time: by now there is a screen to show it
+  // on, and a component that can name the missing variable.
+  if (API_BASE_PROBLEM !== null) throw new ConfigError(API_BASE_PROBLEM);
   try {
     return await fetch(url, init);
   } catch (cause) {

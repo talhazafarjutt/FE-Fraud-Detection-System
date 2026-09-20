@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { resolveBaseUrl } from '@/api/client';
 import { normaliseRisk, parsePageTolerant } from '@/api/compat';
 import { transactionListItemSchema } from '@/api/schemas/transactions';
 
@@ -127,23 +128,47 @@ describe('a bad row does not kill the page', () => {
 });
 
 describe('environment configuration fails loudly rather than guessing', () => {
-  it('both env files define the base URL explicitly', () => {
-    // UNSET is a boot error on purpose: a console that invents a backend is how
-    // a demo ends up pointed at the wrong environment. Defined-but-empty is a
-    // deliberate choice (same origin, via the proxy), and that is not the same
-    // thing as missing.
-    for (const file of ['.env', '.env.example']) {
-      const env = readFileSync(path.join(ROOT, file), 'utf8');
-      expect(env, `${file} must define VITE_API_BASE_URL`).toMatch(/^VITE_API_BASE_URL=/m);
-      expect(env, `${file} must keep mocks off`).toMatch(/VITE_USE_MSW=false/);
-    }
+  it('the committed example defines the base URL and keeps mocks off', () => {
+    /*
+     * `.env.example` ONLY. `.env` is gitignored, so it does not exist on a CI
+     * runner or a fresh clone — asserting on it made the suite pass locally and
+     * fail everywhere else, which is the least useful kind of test.
+     */
+    const env = readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+    expect(env).toMatch(/^VITE_API_BASE_URL=/m);
+    expect(env).toMatch(/VITE_USE_MSW=false/);
+  });
+
+  it('a missing base URL is reported, not guessed at and not thrown at import', () => {
+    const missing = resolveBaseUrl(undefined);
+    expect(missing.problem).toMatch(/VITE_API_BASE_URL/);
+    // No invented fallback — above all, never a production URL.
+    expect(missing.baseUrl).toBe('');
+  });
+
+  it('an explicitly empty base URL is same-origin, not missing', () => {
+    // The two are different configurations and must not be conflated: empty is
+    // a deliberate choice that routes through the dev proxy.
+    expect(resolveBaseUrl('')).toEqual({ baseUrl: '', problem: null });
+  });
+
+  it('a supplied URL is used as given, minus a trailing slash', () => {
+    expect(resolveBaseUrl('http://localhost:8000/')).toEqual({
+      baseUrl: 'http://localhost:8000',
+      problem: null,
+    });
   });
 
   it('no production URL is hardcoded as a fallback', () => {
     const client = readFileSync(path.join(ROOT, 'src/api/client.ts'), 'utf8');
     expect(client).not.toMatch(/https?:\/\/(?!localhost)/);
-    // The absent case throws; it does not default.
-    expect(client).toMatch(/if \(raw === undefined\)/);
-    expect(client).toContain('throw new Error(');
+  });
+
+  it('resolving the base URL cannot throw, whatever it is handed', () => {
+    // A throw during module evaluation kills the import graph and renders a
+    // blank page — strictly worse than the misconfiguration it reports.
+    for (const value of [undefined, '', '   ', 'http://localhost:8000', 'https://api.example/']) {
+      expect(() => resolveBaseUrl(value)).not.toThrow();
+    }
   });
 });

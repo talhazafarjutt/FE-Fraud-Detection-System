@@ -269,6 +269,9 @@ export const TRANSACTION_FIXTURES: Record<string, Transaction> = Object.fromEntr
       scoring_status: 'COMPLETE',
       src_account_last4: String(1000 + ((index * 37) % 9000)),
       dst_account_last4: String(1000 + ((index * 53) % 9000)),
+      // Real account ids, so a ledger row links into the graph offline too.
+      src_account_id: uuid(index * 10, 'account'),
+      dst_account_id: uuid(index * 10 + 1, 'account'),
     },
   ]),
 );
@@ -391,6 +394,8 @@ export const CLEAN_TRANSACTIONS: Transaction[] = Array.from(
       scoring_status: pending ? 'PENDING' : 'COMPLETE',
       src_account_last4: String(1000 + ((index * 17) % 9000)),
       dst_account_last4: String(1000 + ((index * 29) % 9000)),
+      src_account_id: uuid(index * 10 + 2, 'account'),
+      dst_account_id: uuid(index * 10 + 3, 'account'),
     };
   },
 );

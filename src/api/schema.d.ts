@@ -1646,6 +1646,16 @@ export interface components {
             src_account_last4: string;
             /** Dst Account Last4 */
             dst_account_last4: string;
+            /**
+             * Src Account Id
+             * Format: uuid
+             */
+            src_account_id: string;
+            /**
+             * Dst Account Id
+             * Format: uuid
+             */
+            dst_account_id: string;
             /** Risk Score */
             risk_score?: number | null;
             /** Risk Level */
@@ -1689,6 +1699,16 @@ export interface components {
             src_account_last4: string;
             /** Dst Account Last4 */
             dst_account_last4: string;
+            /**
+             * Src Account Id
+             * Format: uuid
+             */
+            src_account_id: string;
+            /**
+             * Dst Account Id
+             * Format: uuid
+             */
+            dst_account_id: string;
         };
         /**
          * TransactionType

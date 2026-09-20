@@ -178,6 +178,18 @@ export default defineConfig(({ command, mode }) => {
       globals: true,
       setupFiles: ['./tests/setup.ts'],
       css: false,
+      /*
+       * `.env` is gitignored, so CI has none and every VITE_ variable is
+       * undefined there. Without this the suite ran in a configuration no real
+       * deployment uses — and a module that read the base URL at import time
+       * took the whole test file down with it.
+       *
+       * Empty string is the same-origin setting `.env.example` ships with, so
+       * tests exercise the default configuration. The MISSING case is covered
+       * directly as a unit test of `resolveBaseUrl`, which is a pure function
+       * for exactly that reason.
+       */
+      env: { VITE_API_BASE_URL: '' },
     },
   };
 });

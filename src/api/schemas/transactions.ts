@@ -199,6 +199,15 @@ export const transactionSchema = z.object({
   scoring_status: z.string(),
   src_account_last4: z.string(),
   dst_account_last4: z.string(),
+  /**
+   * Added by the backend after this console was first written, and picked up by
+   * the committed-schema drift check rather than by anyone noticing a blank
+   * column. They turn a ledger row into a way into the network explorer:
+   * `last4` identifies an account to a human, the id identifies it to the API.
+   * Optional, because the older contract does not send them.
+   */
+  src_account_id: uuid.nullish(),
+  dst_account_id: uuid.nullish(),
 });
 export type Transaction = z.infer<typeof transactionSchema>;
 
@@ -239,6 +248,8 @@ export const transactionListItemSchema = z
     team: z.string().nullable().default(null),
     src_account_last4: z.string().nullable().default(null),
     dst_account_last4: z.string().nullable().default(null),
+    src_account_id: uuid.nullish(),
+    dst_account_id: uuid.nullish(),
     /** 0–100. Null on every row the deployed backend currently returns. */
     risk_score: z.number().nullable().default(null),
     risk_level: z.string().nullable().default(null),

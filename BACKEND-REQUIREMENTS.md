@@ -147,8 +147,23 @@ Recorded because every one was silent: nothing threw, the screen just showed les
 7. **Post-login routing was duplicated** in the login page and the landing route, and the copies
    drifted. There is now one place that decides where a signed-in user goes.
 
-`tests/v1-contract.test.ts`, `tests/compat.test.ts`, `tests/routes.test.ts` and
-`tests/demo-mode.test.ts` pin all of these.
+8. **A missing `VITE_API_BASE_URL` blanked the whole application.** The base URL was resolved at
+   module scope and threw when the variable was absent — and `.env` is gitignored, so it IS absent
+   on a CI runner, on a fresh clone, and on any hosting project where nobody set it. The throw
+   happened during import, so the module graph died and the page rendered blank with one console
+   line. A forgotten setting looked like a crashed application. Resolution no longer throws: the
+   problem is recorded, the header says the build is not configured, and the error is raised at the
+   point a request is attempted, where it can be rendered as instructions. `tests/boot-config.test.ts`
+   pins it.
+
+`tests/v1-contract.test.ts`, `tests/compat.test.ts`, `tests/routes.test.ts`,
+`tests/boot-config.test.ts` and `tests/demo-mode.test.ts` pin all of these.
+
+**The drift check has already earned itself.** Mid-build the backend added `src_account_id` and
+`dst_account_id` to `TransactionListItem` and `TransactionOut`. Nobody announced it; `schema:check`
+failed, the diff named the two fields, and they are now declared on the schema and used — each side
+of a ledger row links into the network explorer centred on that account. Undeclared, Zod would have
+stripped them and the capability would simply never have existed.
 
 ---
 

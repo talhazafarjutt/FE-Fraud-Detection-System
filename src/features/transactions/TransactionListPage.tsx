@@ -295,6 +295,27 @@ function Header() {
   );
 }
 
+function AccountRef({
+  last4,
+  accountId,
+}: {
+  last4: string | null;
+  accountId: string | null | undefined;
+}) {
+  const label = `••${last4 ?? '????'}`;
+  if (!accountId) return <>{label}</>;
+  return (
+    <Link
+      to={`/network?account=${accountId}`}
+      className="hover:text-ultra"
+      title="Open this account in the network explorer"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {label}
+    </Link>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="bg-surface p-4">
@@ -372,9 +393,16 @@ function Row({ row }: { row: TransactionListItem }) {
         </span>
       </td>
 
+      {/*
+        Each side links into the network explorer centred on that account. The
+        backend added `src_account_id`/`dst_account_id` for exactly this: the
+        last4 is what a human reads, the id is what the graph endpoint needs.
+        Falls back to plain text on the older contract, which sends neither.
+      */}
       <td className="py-3 pr-4">
         <span className="font-mono text-[11px] text-ink-3">
-          ••{row.src_account_last4} → ••{row.dst_account_last4}
+          <AccountRef last4={row.src_account_last4} accountId={row.src_account_id} /> →{' '}
+          <AccountRef last4={row.dst_account_last4} accountId={row.dst_account_id} />
         </span>
       </td>
 

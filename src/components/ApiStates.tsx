@@ -69,6 +69,18 @@ export interface ApiErrorPanelProps {
 export function ApiErrorPanel({ error, what, onRetry, scopeHint }: ApiErrorPanelProps) {
   const failure: ApiFailure = describeFailure(error);
 
+  if (failure.kind === 'config') {
+    return (
+      <Frame tone="error" eyebrow="Configuration" title="This build does not know which backend to call.">
+        <p>
+          No request was attempted, so there is nothing to retry — this is a build setting, not an
+          outage.
+        </p>
+        <p>{failure.detail}</p>
+      </Frame>
+    );
+  }
+
   if (failure.kind === 'network') {
     return (
       <Frame tone="error" eyebrow="Cannot reach the API" title={`Nothing answered at ${API_BASE_LABEL}.`}>
