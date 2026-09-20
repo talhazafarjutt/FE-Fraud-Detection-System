@@ -56,8 +56,20 @@ export function Button({ variant = 'primary', className, ...props }: ButtonProps
   );
 }
 
-export function Tag({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={cx('tag', className)}>{children}</span>;
+export function Tag({
+  children,
+  className,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <span className={cx('tag', className)} {...(title ? { title } : {})}>
+      {children}
+    </span>
+  );
 }
 
 /**

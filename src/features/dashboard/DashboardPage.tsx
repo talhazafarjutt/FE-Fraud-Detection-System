@@ -17,6 +17,7 @@ import {
   TooFewPoints,
 } from './panels';
 import { ThresholdExplorer } from './ThresholdExplorer';
+import { FlowPanel } from '@/features/flow/FlowPanel';
 import { WINDOWS, type WindowId, useDashboardAlerts, useMetricsQuery, windowLabel, windowToQuery } from './queries';
 
 const FlowChart = lazy(() => import('./FlowChart'));
@@ -25,6 +26,7 @@ const OPEN_STATUSES = new Set(['OPEN', 'IN_REVIEW', 'ESCALATED']);
 
 export default function DashboardPage() {
   const { session, hasScope } = useAuth();
+
   const [windowId, setWindowId] = useState<WindowId>('7d');
   const query = useMemo(() => windowToQuery(windowId), [windowId]);
   const label = windowLabel(windowId);
@@ -92,6 +94,8 @@ export default function DashboardPage() {
           </Button>
         </div>
       </header>
+
+      <FlowPanel />
 
       {/* Row 1 — my work. Sourced from the alerts page, not from metrics. */}
       <section>

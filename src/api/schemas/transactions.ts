@@ -256,7 +256,8 @@ export const transactionPageSchema = z.object({
   next_cursor: z.string().nullable().default(null),
   page_size: z.number().int(),
 });
-export type TransactionPage = z.infer<typeof transactionPageSchema>;
+/** `skipped` counts rows dropped by tolerant parsing — see api/compat.ts. */
+export type TransactionPage = z.infer<typeof transactionPageSchema> & { skipped: number };
 
 export interface TransactionFilters {
   risk_level?: string;

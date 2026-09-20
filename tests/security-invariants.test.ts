@@ -66,20 +66,35 @@ describe('secrets never reach shipped application code', () => {
 
 describe('token handling', () => {
   /**
-   * Exactly one file may touch web storage: the colour-scheme preference.
-   * It is an enum with three legal values, validated on read, and carries no
-   * user data. Everything else — tokens above all — stays in memory.
+   * Exactly two files may touch web storage, and both are narrow:
+   *
+   *  - the colour-scheme preference: a three-value enum, validated on read.
+   *  - the chunk-reload marker: a route name written immediately before a
+   *    reload so a failed dynamic import cannot loop forever.
+   *
+   * Neither carries user data. Everything else — tokens above all — stays in
+   * memory. The list is exact, so a third file appearing fails this test.
    */
-  const STORAGE_EXCEPTION = 'src/styles/theme.ts';
+  const STORAGE_EXCEPTIONS = ['src/routes/lazyRoute.ts', 'src/styles/theme.ts'];
 
-  it('only the theme preference touches web storage, and nothing else does', () => {
+  it('only the two documented files touch web storage', () => {
     const banned = /\b(localStorage|sessionStorage|document\.cookie|indexedDB)\b/;
     const offenders = SOURCES.filter((file) => banned.test(stripComments(read(file)))).map(rel);
-    expect(offenders).toEqual([STORAGE_EXCEPTION]);
+    expect(offenders.sort()).toEqual(STORAGE_EXCEPTIONS);
+  });
+
+  it('the chunk-reload marker stores a route name and nothing else', () => {
+    const code = stripComments(read(path.join(ROOT, 'src/routes/lazyRoute.ts')));
+    // One key, and it is the reload key.
+    const keys = [
+      ...code.matchAll(/sessionStorage\.(?:get|set|remove)Item\(\s*([A-Za-z_]+)/g),
+    ].map((m) => m[1]);
+    expect(new Set(keys)).toEqual(new Set(['RELOAD_KEY']));
+    expect(code).not.toMatch(/token|password|secret|refresh_token/i);
   });
 
   it('the storage exception stores a colour scheme and nothing sensitive', () => {
-    const code = read(path.join(ROOT, STORAGE_EXCEPTION));
+    const code = read(path.join(ROOT, 'src/styles/theme.ts'));
 
     // One key, and it is the theme key.
     const keys = [...code.matchAll(/localStorage\.(?:get|set)Item\(\s*([A-Za-z_]+)/g)].map(

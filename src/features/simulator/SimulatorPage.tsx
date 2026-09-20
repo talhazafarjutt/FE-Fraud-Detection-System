@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { requestData } from '@/api/client';
+import { requestData, route } from '@/api/client';
 import { clientToken } from '@/api/endpoints/auth';
 import { clientCredentialsSchema } from '@/api/schemas/auth';
 import { type ScorePushInput, scorePushResultSchema, scorePushSchema } from '@/api/schemas/scores';
@@ -67,7 +67,7 @@ export default function SimulatorPage() {
 
   const pushScore = useMutation({
     mutationFn: (input: ScorePushInput) =>
-      requestData('/v1/scores', {
+      requestData(route('/v1/scores'), {
         method: 'POST',
         body: input,
         schema: scorePushResultSchema,

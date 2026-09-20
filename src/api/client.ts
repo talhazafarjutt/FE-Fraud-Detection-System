@@ -1,15 +1,68 @@
 import { z } from 'zod';
 import { tokenStore } from '@/auth/tokenStore';
-import { ApiError, SchemaError, parseProblem } from '@/lib/problem';
+import { ApiError, NetworkError, SchemaError, parseProblem } from '@/lib/problem';
 import { tokenResponseSchema } from './schemas/auth';
+import type { ApiRoute } from './route';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+export { queryString, route, unsafeRoute } from './route';
+export type { ApiRoute } from './route';
+
+/**
+ * Where requests go — resolved once, printed in the header.
+ *
+ * Three cases, and they are deliberately not the same:
+ *   - UNSET        → throw at boot. A console that silently invents a backend
+ *                    is how a demo ends up pointed at the wrong environment.
+ *                    Never fall back to a production URL.
+ *   - EMPTY STRING → same-origin. Requests go to `/v1/...` on whatever host is
+ *                    serving the app, which the Vite dev proxy (and the hosting
+ *                    rewrite) forwards to the API. This is an explicit choice
+ *                    made in `.env`, not a missing value, and it means the
+ *                    browser never performs a cross-origin preflight.
+ *   - A URL        → used as-is.
+ */
+function resolveBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL;
+  if (raw === undefined) {
+    throw new Error(
+      'VITE_API_BASE_URL is not set. Copy .env.example to .env. Leave it empty to use the ' +
+        'dev proxy, or point it at your API (http://localhost:8000 for a local backend).',
+    );
+  }
+  return raw.trim().replace(/\/$/, '');
+}
+
+export const API_BASE_URL = resolveBaseUrl();
+
+/** What to show a human. An empty base URL is same-origin, not "nowhere". */
+export const API_BASE_LABEL =
+  API_BASE_URL === ''
+    ? `${typeof window === 'undefined' ? 'this origin' : window.location.origin} (proxied)`
+    : API_BASE_URL;
+
+const BASE_URL = API_BASE_URL;
 
 /** Refresh this long before the access token actually expires. */
 const PROACTIVE_REFRESH_MS = 60_000;
 
 export function apiUrl(path: string): string {
   return `${BASE_URL}${path}`;
+}
+
+/**
+ * `fetch` rejects — with no status and no body — for CORS, DNS, offline and a
+ * dead server alike. That rejection used to surface as "UNREACHABLE" while the
+ * API was perfectly healthy and the real problem was a preflight. Wrapping it
+ * here keeps "the server said no" and "we never reached the server" as two
+ * different things all the way up to the UI.
+ */
+async function fetchOrNetworkError(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
+    throw new NetworkError(API_BASE_LABEL, cause);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -33,7 +86,7 @@ async function performRefresh(): Promise<string> {
   const refreshToken = tokenStore.getRefreshToken();
   if (!refreshToken) throw new Error('No refresh token available.');
 
-  const response = await fetch(apiUrl('/v1/auth/refresh'), {
+  const response = await fetchOrNetworkError(apiUrl('/v1/auth/refresh'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -97,7 +150,7 @@ export function __resetRefreshState(): void {
  * ------------------------------------------------------------------ */
 
 export interface RequestOptions<T> {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** Output type is T; input is unknown because it comes off the wire. */
   schema?: z.ZodType<T, z.ZodTypeDef, unknown>;
@@ -122,13 +175,13 @@ export interface ApiResult<T> {
   headers: Record<string, string>;
 }
 
-async function send(path: string, options: RequestOptions<unknown>, token: string | null) {
+async function send(path: ApiRoute, options: RequestOptions<unknown>, token: string | null) {
   const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (token && !options.anonymous) headers['Authorization'] = `Bearer ${token}`;
   // No token ever goes into a URL, a query string or a log line.
 
-  return fetch(apiUrl(path), {
+  return fetchOrNetworkError(apiUrl(path), {
     method: options.method ?? 'GET',
     headers,
     ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
@@ -141,7 +194,7 @@ async function send(path: string, options: RequestOptions<unknown>, token: strin
  * loop against a 401 is how you lock an account out mid-demo.
  */
 export async function request<T>(
-  path: string,
+  path: ApiRoute,
   options: RequestOptions<T> = {},
 ): Promise<ApiResult<T>> {
   const override = options.bearerOverride;
@@ -199,18 +252,10 @@ export async function request<T>(
 }
 
 /** Convenience wrapper for the common case where only the body matters. */
-export async function requestData<T>(path: string, options: RequestOptions<T> = {}): Promise<T> {
+export async function requestData<T>(
+  path: ApiRoute,
+  options: RequestOptions<T> = {},
+): Promise<T> {
   const result = await request<T>(path, options);
   return result.data;
-}
-
-/** Build a query string, dropping empty values so we never send `?status=`. */
-export function queryString(params: Record<string, string | number | undefined | null>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
-    search.set(key, String(value));
-  }
-  const encoded = search.toString();
-  return encoded ? `?${encoded}` : '';
 }

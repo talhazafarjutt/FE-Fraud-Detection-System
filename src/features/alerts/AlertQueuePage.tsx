@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Alert } from '@/api/schemas/alerts';
-import { tokenStore } from '@/auth/tokenStore';
+import { useObservedTeam } from '@/auth/observeTeam';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button, EmptyState, Eyebrow, Skeleton } from '@/components/primitives';
+import { SkippedRowsNotice } from '@/components/ApiStates';
 import { errorStatus } from '@/lib/problem';
 import { riskDisplay } from '@/lib/risk';
 import { AlertFilterBar } from './AlertFilterBar';
@@ -51,6 +52,17 @@ export default function AlertQueuePage() {
     refetch,
   } = useAlertsQuery(filters);
 
+  /*
+   * Rows the API returned that this build could not read. Counted and shown,
+   * never hidden: when a schema mismatch dropped every row, the queue rendered
+   * "no alerts match these filters" — a plausible, wrong empty state that hid a
+   * contract break behind a 200. An honest count is what makes that visible.
+   */
+  const skipped = useMemo(
+    () => data?.pages.reduce((sum, page) => sum + (page.skipped ?? 0), 0) ?? 0,
+    [data],
+  );
+
   const alerts = useMemo<Alert[]>(
     () => data?.pages.flatMap((page) => page.items) ?? [],
     [data],
@@ -60,11 +72,7 @@ export default function AlertQueuePage() {
   // the caller's team is inferred from the rows the server chose to return.
   // With alerts:read:all that inference is meaningless, so we skip it.
   const crossTeam = hasScope('alerts:read:all');
-  useEffect(() => {
-    if (crossTeam || alerts.length === 0) return;
-    const teams = new Set(alerts.map((alert) => alert.team));
-    tokenStore.setObservedTeam(teams.size === 1 ? (alerts[0]?.team ?? null) : null);
-  }, [alerts, crossTeam]);
+  useObservedTeam(alerts, !crossTeam);
 
   const onHover = useCallback(
     (alertId: string) => prefetchAlert(queryClient, alertId),
@@ -136,14 +144,26 @@ export default function AlertQueuePage() {
 
       <AlertFilterBar {...filterState} />
 
+      <SkippedRowsNotice skipped={skipped} />
+
       <section>
         {isPending ? (
           <TableSkeleton />
         ) : alerts.length === 0 ? (
-          <EmptyState
-            title="No alerts match these filters"
-            body="Widen the probability threshold or clear the status and severity filters."
-          />
+          skipped > 0 ? (
+            // Not an empty queue: the API sent rows and none of them parsed.
+            // Saying "no alerts match" here would report a contract break as a
+            // filter result, which is how this stayed invisible last time.
+            <EmptyState
+              title={`${skipped} rows returned, none readable`}
+              body="The API answered with data this build could not parse, so nothing can be listed. The response shape has changed — regenerate the API types and read the diff."
+            />
+          ) : (
+            <EmptyState
+              title="No alerts match these filters"
+              body="Widen the probability threshold or clear the status and severity filters."
+            />
+          )
         ) : (
           <>
             <div className="overflow-x-auto border border-rule bg-surface">

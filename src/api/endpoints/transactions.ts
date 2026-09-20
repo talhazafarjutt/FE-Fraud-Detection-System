@@ -1,4 +1,5 @@
-import { queryString, request, requestData } from '../client';
+import { request, requestData, route } from '../client';
+import { parsePageTolerant } from '../compat';
 import {
   type Transaction,
   type TransactionCreated,
@@ -7,7 +8,7 @@ import {
   type Risk,
   riskSchema,
   transactionCreatedSchema,
-  transactionPageSchema,
+  transactionListItemSchema,
   transactionSchema,
 } from '../schemas/transactions';
 
@@ -29,7 +30,7 @@ export async function createTransaction(
   idempotencyKey: string,
   bearer?: string,
 ): Promise<CreateTransactionResult> {
-  const result = await request('/v1/transactions', {
+  const result = await request(route('/v1/transactions'), {
     method: 'POST',
     body,
     schema: transactionCreatedSchema,
@@ -45,7 +46,7 @@ export async function createTransaction(
 }
 
 export async function getTransaction(id: string, signal?: AbortSignal): Promise<Transaction> {
-  return requestData(`/v1/transactions/${id}`, {
+  return requestData(route('/v1/transactions/{transaction_id}', { transaction_id: id }), {
     schema: transactionSchema,
     ...(signal ? { signal } : {}),
   });
@@ -53,7 +54,7 @@ export async function getTransaction(id: string, signal?: AbortSignal): Promise<
 
 /** 404s until a score exists — that is the documented PENDING path, not an error. */
 export async function getTransactionScore(id: string, signal?: AbortSignal): Promise<Risk> {
-  return requestData(`/v1/transactions/${id}/score`, {
+  return requestData(route('/v1/transactions/{transaction_id}/score', { transaction_id: id }), {
     schema: riskSchema,
     ...(signal ? { signal } : {}),
   });
@@ -68,7 +69,7 @@ export async function listTransactions(
   cursor: string | null,
   signal?: AbortSignal,
 ): Promise<TransactionPage> {
-  const qs = queryString({
+  const query = {
     risk_level: filters.risk_level,
     min_probability: filters.min_probability,
     max_probability: filters.max_probability,
@@ -85,9 +86,16 @@ export async function listTransactions(
     q: filters.q,
     limit: filters.limit,
     cursor,
-  });
-  return requestData(`/v1/transactions${qs}`, {
-    schema: transactionPageSchema,
+  };
+  /**
+   * Parsed row by row rather than as a whole page. A single unexpected row
+   * shape previously failed the entire array, so fifty good rows disappeared
+   * behind "could not be loaded" with a 200 in the network panel. A bad row is
+   * now dropped and counted; the caller shows the rest and says how many were
+   * skipped.
+   */
+  const payload = await requestData<unknown>(route('/v1/transactions', query), {
     ...(signal ? { signal } : {}),
   });
+  return parsePageTolerant(transactionListItemSchema, payload);
 }

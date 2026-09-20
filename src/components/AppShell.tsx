@@ -1,5 +1,7 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Suspense } from 'react';
+import { API_BASE_LABEL } from '@/api/client';
+import { teamLabel } from '@/lib/format';
 import { useAuth } from '@/auth/AuthProvider';
 import { roleLabel } from '@/auth/tokenStore';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -10,32 +12,35 @@ import { Skeleton, cx } from './primitives';
 interface NavItem {
   to: string;
   label: string;
-  /** Nav items are driven by scope. An item the caller cannot use is absent. */
+  /**
+   * Nav items are driven by SCOPE, never by a role name. An item the caller
+   * cannot use is absent rather than present-and-403 — letting someone click
+   * into a permissions error is worse than not offering it.
+   */
   scope: string;
-  /** True when the section's backend endpoint does not exist yet. */
-  pending?: boolean;
 }
 
 /**
- * The nine sections of the V1 flow, in the order a case actually moves:
- * a transaction is detected, raises an alert, becomes an investigation, and
- * ends as a closed case.
+ * The nine sections, in the order a case actually moves: a transaction is
+ * detected, raises an alert, is grouped into an investigation, and ends as a
+ * concluded case with an audit trail behind it.
  *
- * `pending` marks a section whose endpoint is not deployed. It still appears —
- * hiding it would misrepresent the product — but it is dimmed and labelled, so
- * nobody clicks expecting data.
+ * Nothing here is a stub. Every entry reads from its own endpoint.
  */
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', scope: 'alerts:read' },
   { to: '/alerts', label: 'Alerts', scope: 'alerts:read' },
-  { to: '/investigations', label: 'Investigations', scope: 'alerts:read', pending: true },
-  { to: '/network', label: 'Network', scope: 'alerts:read', pending: true },
-  { to: '/entities', label: 'Entities', scope: 'alerts:read', pending: true },
+  { to: '/investigations', label: 'Investigations', scope: 'alerts:read' },
+  { to: '/network', label: 'Network', scope: 'alerts:read' },
+  { to: '/entities', label: 'Entities', scope: 'entities:read' },
   { to: '/transactions', label: 'Transactions', scope: 'transactions:read' },
-  { to: '/cases', label: 'Cases', scope: 'alerts:read', pending: true },
-  { to: '/audit', label: 'Audit', scope: 'alerts:read', pending: true },
+  { to: '/cases', label: 'Cases', scope: 'alerts:read' },
+  // The trail describes the analysts, so they do not get to read it.
+  { to: '/audit', label: 'Audit', scope: 'audit:read' },
   { to: '/users', label: 'Users', scope: 'users:manage' },
 ];
+
+const MOCKS_ON = import.meta.env.VITE_USE_MSW === 'true';
 
 function Wordmark() {
   return (
@@ -49,8 +54,8 @@ export function AppShell() {
   const { session, hasScope, signOut } = useAuth();
   const navigate = useNavigate();
 
-  // ADMIN has users:manage only — deliberately no alert access. The alerts nav
-  // item is therefore absent for an admin, not disabled with a tooltip.
+  // ADMIN holds users:manage and audit:read only — deliberately no case access.
+  // The alerts nav item is therefore absent for an admin, not disabled.
   const items = NAV.filter((item) => hasScope(item.scope));
 
   const role = roleLabel(session?.scopes ?? []);
@@ -65,6 +70,17 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-paper">
+      {/*
+        Mock data that nobody notices is worse than an outage, because an
+        outage gets reported. If MSW is on, the console says so at the top of
+        every screen and does not let it be dismissed.
+      */}
+      {MOCKS_ON ? (
+        <div className="bg-carmine px-4 py-2 text-center font-mono text-[11px] uppercase tracking-label text-on-carmine">
+          Demo mode — every response on this screen is mock data, not a real backend
+        </div>
+      ) : null}
+
       <header className="border-b border-rule bg-paper">
         <div className="shell flex flex-wrap items-center gap-x-8 gap-y-4 py-4">
           <Wordmark />
@@ -74,7 +90,6 @@ export function AppShell() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                title={item.pending ? `${item.label} needs a backend endpoint` : undefined}
                 className={({ isActive }) =>
                   cx(
                     'font-mono text-[11px] uppercase tracking-label transition-colors',
@@ -83,13 +98,6 @@ export function AppShell() {
                 }
               >
                 {item.label}
-                {/* A dot, not a hidden item: the section is part of the product,
-                    it just has nothing to show yet. */}
-                {item.pending ? (
-                  <span className="ml-1 text-amber" aria-label=" (not available yet)">
-                    ·
-                  </span>
-                ) : null}
               </NavLink>
             ))}
           </nav>
@@ -101,13 +109,20 @@ export function AppShell() {
                 All teams
               </span>
             ) : session?.team ? (
-              <span className="tag" title="The server filters alerts to this team">
-                Team {session.team}
+              <span className="tag" title="The server filters your results to this team">
+                {teamLabel(session.team)}
               </span>
             ) : null}
             <span className="tag" title={session?.email ?? undefined}>
               {role}
             </span>
+            <Link
+              to="/flow"
+              className="tag hover:border-ultra hover:text-ultra"
+              title="How money becomes a case, and which part of it is yours"
+            >
+              Your workflow
+            </Link>
             <StatusDot />
             <ThemeToggle />
             <button type="button" onClick={handleSignOut} className="btn btn--ghost">
@@ -115,6 +130,7 @@ export function AppShell() {
             </button>
           </div>
         </div>
+        <BaseUrlBadge />
       </header>
 
       <main className="shell py-10">
@@ -125,6 +141,20 @@ export function AppShell() {
         </ErrorBoundary>
       </main>
     </div>
+  );
+}
+
+/**
+ * The resolved API base URL, printed where a human can see it.
+ *
+ * Roughly half of "the console is broken" turns out to be a build pointed at
+ * the wrong backend, and nothing on screen said so.
+ */
+function BaseUrlBadge() {
+  return (
+    <p className="shell py-2 font-mono text-[11px] text-ink-3">
+      API <span className="text-ink-2">{API_BASE_LABEL}</span>
+    </p>
   );
 }
 

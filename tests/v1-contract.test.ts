@@ -1,13 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { alertDetailSchema, alertPatchSchema, alertSchema } from '@/api/schemas/alerts';
 import { transactionListItemSchema } from '@/api/schemas/transactions';
-import { NOT_IMPLEMENTED } from '@/api/unavailable';
+import { parsePageTolerant } from '@/api/compat';
 import { riskDisplay } from '@/lib/risk';
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (p: string) => readFileSync(path.join(ROOT, p), 'utf8');
+
+/** Comments are stripped before asserting: these files legitimately discuss
+ *  paths and payloads in prose to explain why they are shaped as they are. */
+const strip = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 /**
  * Pins the defects found against the deployed V1 API. Each of these was a real,
@@ -81,8 +86,12 @@ describe('the verdict no longer rides on the alert', () => {
     expect(endpoint).not.toMatch(/body\['feedback'\]\s*=/);
   });
 
-  it('the verdict is registered as a missing capability', () => {
-    expect(NOT_IMPLEMENTED.caseVerdict.endpoints.join(' ')).toContain('/v1/cases/{id}');
+  it('the verdict is recorded on the case instead', () => {
+    // One scheme, one judgement: concluding nine member alerts separately would
+    // emit nine correlated training labels for a single fraud event.
+    const cases = read('src/api/endpoints/cases.ts');
+    expect(cases).toContain("route('/v1/cases/{case_id}', { case_id: caseId })");
+    expect(cases).toContain("body['feedback']");
   });
 });
 
@@ -122,6 +131,104 @@ describe('scores tolerate the deployed backend', () => {
   });
 });
 
+describe('alert rows parse against the live payload', () => {
+  /**
+   * Copied verbatim from `GET /v1/fraud-alerts` on the running backend.
+   *
+   * Two fields here had the WRONG TYPE in the schema and every row was rejected:
+   * `provenance` is an object, not a string, and `network.indicators` is a map,
+   * not an array. Tolerant parsing then dropped all fifty rows and the queue
+   * rendered "no alerts match these filters" — a plausible empty state hiding a
+   * contract break behind a 200 response.
+   *
+   * Fixtures come off the wire, never out of a document.
+   */
+  const live = {
+    id: 'af000dcd-f0c0-4d38-b4af-c1f092077746',
+    transaction_id: '73e4f82b-e1fb-4d00-bb50-8d54e64a5ddd',
+    score_id: '973b56b4-468e-451c-be5f-324f96aa07c0',
+    case_id: '8d93ce3e-c475-43e2-9ecd-a23a8504eb84',
+    status: 'OPEN',
+    severity: 'HIGH',
+    risk_score: 90.89206171035767,
+    team: 'team-alpha',
+    assigned_to: null,
+    opened_at: '2026-09-18T21:28:13.418494Z',
+    closed_at: null,
+    amount: '48500.00',
+    currency: 'AED',
+    provenance: {
+      transaction_id: '73e4f82b-e1fb-4d00-bb50-8d54e64a5ddd',
+      score_id: '973b56b4-468e-451c-be5f-324f96aa07c0',
+      alert_id: 'af000dcd-f0c0-4d38-b4af-c1f092077746',
+      model_name: 'xgboost-paysim',
+      model_version: '1.0.0',
+      risk_engine_version: '2.0.0',
+      scored_at: '2026-09-18T21:28:13.413145Z',
+    },
+  };
+
+  it('parses a row exactly as the API returns it', () => {
+    const parsed = alertSchema.parse(live);
+    expect(parsed.risk_score).toBeCloseTo(90.892, 3);
+    expect(parsed.case_id).toBe('8d93ce3e-c475-43e2-9ecd-a23a8504eb84');
+    expect(parsed.provenance).toMatchObject({ model_name: 'xgboost-paysim' });
+  });
+
+  it('a whole page of live rows survives tolerant parsing', () => {
+    const page = parsePageTolerant(alertSchema, {
+      items: [live, { ...live, id: '11111111-1111-4111-a111-111111111111' }],
+      next_cursor: null,
+      page_size: 2,
+    });
+    expect(page.skipped, 'a live alert row was dropped').toBe(0);
+    expect(page.items).toHaveLength(2);
+  });
+
+  it('network indicators may be a map or an array', () => {
+    const base = {
+      ...live,
+      events: [],
+      explanation: [],
+      triggered_rules: [],
+      decision_reasons: [],
+    };
+    const asMap = alertDetailSchema.parse({
+      ...base,
+      network: { network_score: 40, indicators: { receiver_fan_in: 4 }, evidence: [] },
+    });
+    expect(asMap.network?.indicators).toMatchObject({ receiver_fan_in: 4 });
+
+    const asArray = alertDetailSchema.parse({
+      ...base,
+      network: { network_score: 40, indicators: ['FAN_IN'], evidence: [] },
+    });
+    expect(asArray.network?.indicators).toEqual(['FAN_IN']);
+  });
+
+  it('keeps direction and description on a model explanation', () => {
+    // §8 renders both when present; Zod's default key-stripping removed them.
+    const parsed = alertDetailSchema.parse({
+      ...live,
+      events: [],
+      explanation: [
+        {
+          feature: 'amount_ratio',
+          contribution: 1.42,
+          direction: 'INCREASES_RISK',
+          description: 'The amount was unusual for this account.',
+        },
+      ],
+      triggered_rules: [],
+      decision_reasons: [],
+    });
+    expect(parsed.explanation[0]).toMatchObject({
+      direction: 'INCREASES_RISK',
+      description: 'The amount was unusual for this account.',
+    });
+  });
+});
+
 describe('the risk engine payload is optional everywhere', () => {
   it('parses the deployed detail shape, where every engine field is null or empty', () => {
     const parsed = alertDetailSchema.parse({
@@ -152,36 +259,63 @@ describe('the risk engine payload is optional everywhere', () => {
   });
 });
 
-describe('missing capabilities are declared, not guessed at', () => {
-  it('records the case layer as unavailable', () => {
-    // The V1 spec presents /v1/cases as available; the deployed API 404s all of
-    // it. The registry is what stops a screen rendering invented data.
-    expect(NOT_IMPLEMENTED.cases.endpoints).toContain('GET /v1/cases');
-    expect(NOT_IMPLEMENTED.cases.observed).toMatch(/404/);
-  });
-
-  it('every entry names at least one endpoint and what it unlocks', () => {
-    for (const [key, entry] of Object.entries(NOT_IMPLEMENTED)) {
-      expect(entry.endpoints.length, `${key} has no endpoint`).toBeGreaterThan(0);
-      expect(entry.unlocks.length, `${key} has no description`).toBeGreaterThan(10);
-      expect(entry.observed.length, `${key} has no observation`).toBeGreaterThan(10);
+describe('every path is built from the generated OpenAPI types', () => {
+  it('no endpoint module builds a URL by hand', () => {
+    // A template-literal path is how a route that does not exist on the backend
+    // used to typecheck. Every path now goes through `route()`, whose first
+    // argument is `keyof paths` from the generated schema.
+    const endpointDir = path.join(ROOT, 'src/api/endpoints');
+    for (const file of readdirSync(endpointDir)) {
+      const source = strip(readFileSync(path.join(endpointDir, file), 'utf8'));
+      expect(source, `${file} interpolates a path`).not.toMatch(/`\/v1\/[^`]*\$\{/);
     }
   });
 
-  it('no screen calls a route that does not exist', () => {
-    // Endpoint modules are the only place a URL should be built; none of them
-    // may reference a path from the missing registry.
+  it('the committed schema contains every path the console calls', () => {
+    const schema = read('src/api/schema.d.ts');
     const endpointDir = path.join(ROOT, 'src/api/endpoints');
-    const files = ['alerts.ts', 'transactions.ts', 'auth.ts', 'users.ts', 'metrics.ts'];
-    // Comments are stripped first: these files legitimately *discuss* the
-    // missing routes to explain why they are not called.
-    const strip = (src: string) =>
-      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const sources = files
-      .map((f) => strip(readFileSync(path.join(endpointDir, f), 'utf8')))
-      .join('\n');
-    expect(sources).not.toContain('/v1/cases');
-    expect(sources).not.toContain('/v1/feedback/export');
-    expect(sources).not.toContain('/v1/entities');
+    const called = new Set<string>();
+
+    for (const file of readdirSync(endpointDir)) {
+      const source = strip(readFileSync(path.join(endpointDir, file), 'utf8'));
+      for (const match of source.matchAll(/route\(\s*'([^']+)'/g)) {
+        if (match[1]) called.add(match[1]);
+      }
+    }
+
+    expect(called.size).toBeGreaterThan(10);
+    for (const path_ of called) {
+      expect(schema, `${path_} is not in the generated schema`).toContain(`"${path_}"`);
+    }
+  });
+
+  it('the generated schema is committed and covers the investigation layer', () => {
+    const schema = read('src/api/schema.d.ts');
+    for (const path_ of [
+      '/v1/cases',
+      '/v1/cases/{case_id}',
+      '/v1/entities',
+      '/v1/network/accounts/{account_id}',
+      '/v1/audit-logs',
+      '/v1/feedback/export',
+    ]) {
+      expect(schema).toContain(`"${path_}"`);
+    }
+  });
+
+  it('nothing outside the client calls fetch directly', () => {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((entry) => {
+        const full = path.join(dir, entry);
+        return statSync(full).isDirectory() ? walk(full) : [full];
+      });
+
+    const offenders = walk(path.join(ROOT, 'src'))
+      .filter((f) => /\.tsx?$/.test(f))
+      .filter((f) => !f.includes(`${path.sep}mocks${path.sep}`))
+      .filter((f) => /(?<![.\w])fetch\s*\(/.test(strip(readFileSync(f, 'utf8'))))
+      .map((f) => path.relative(ROOT, f));
+
+    expect(offenders).toEqual(['src/api/client.ts']);
   });
 });

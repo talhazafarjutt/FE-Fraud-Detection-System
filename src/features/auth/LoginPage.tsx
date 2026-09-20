@@ -39,15 +39,15 @@ export default function LoginPage() {
     setFormError(null);
     setLockoutSeconds(null);
     try {
-      const session = await signIn(values);
-      // Route by scope, not by role name — the backend authorises on scopes.
-      if (session.scopes.includes('alerts:read')) {
-        navigate('/dashboard', { replace: true });
-      } else if (session.scopes.includes('users:manage')) {
-        navigate('/users', { replace: true });
-      } else {
-        navigate('/', { replace: true });
-      }
+      await signIn(values);
+      /*
+       * Always hand off to ScopeLanding rather than deciding here.
+       *
+       * This used to duplicate the scope-to-landing rules, and the copies drifted:
+       * the first-sign-in workflow view was added to one of them and silently
+       * skipped by the other. One destination, one place that knows where it goes.
+       */
+      navigate('/', { replace: true });
     } catch (error) {
       if (error instanceof ApiError) {
         // 429 carries Retry-After. Say so honestly rather than "try again later".

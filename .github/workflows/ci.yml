@@ -47,6 +47,12 @@ jobs:
       - name: Lint
         run: npx eslint . --ext .ts,.tsx --max-warnings 0
 
+      # The committed OpenAPI types are the contract. This step is a no-op
+      # without a reachable backend (see the script), so it never fails a PR
+      # for the wrong reason — set API_URL to make it authoritative.
+      - name: Check OpenAPI schema drift
+        run: npm run schema:check
+
       - name: Test
         run: npm run test
 

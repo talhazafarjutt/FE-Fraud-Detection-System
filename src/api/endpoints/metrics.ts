@@ -1,4 +1,4 @@
-import { queryString, requestData } from '../client';
+import { requestData, route } from '../client';
 import {
   type MetricsOverview,
   type MetricsQuery,
@@ -6,16 +6,19 @@ import {
 } from '../schemas/metrics';
 
 /**
- * §15.2. Not implemented on the backend yet (404 today) — the dashboard
- * handles that as an explicit unavailable state rather than a crash.
+ * VERIFIED on the wire: this endpoint takes `from`/`to`/`bucket`. It does NOT
+ * take `days`, despite the brief saying so — an unknown param would be ignored
+ * silently and the window would quietly be the server default.
  */
 export async function getMetricsOverview(
   query: MetricsQuery,
   signal?: AbortSignal,
 ): Promise<MetricsOverview> {
-  const qs = queryString({ from: query.from, to: query.to, bucket: query.bucket });
-  return requestData(`/v1/metrics/overview${qs}`, {
-    schema: metricsOverviewSchema,
-    ...(signal ? { signal } : {}),
-  });
+  return requestData(
+    route('/v1/metrics/overview', { from: query.from, to: query.to, bucket: query.bucket }),
+    {
+      schema: metricsOverviewSchema,
+      ...(signal ? { signal } : {}),
+    },
+  );
 }

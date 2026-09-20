@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { AlertDetail, DecisionReason, Signals, TriggeredRule } from '@/api/schemas/alerts';
 import { cx } from '@/components/primitives';
 import { titleCase } from '@/lib/format';
@@ -171,8 +172,22 @@ export function NetworkNeighbourhood({ network }: { network: AlertDetail['networ
   const nodes = network.neighborhood?.nodes ?? [];
   const edges = network.neighborhood?.edges ?? [];
   const evidence = network.evidence ?? [];
+  /*
+   * `indicators` is the network signal's actual working: a map of named
+   * measurements to values (receiver_fan_in: 4, pass_through_ratio: 0.97). On
+   * the current contract `evidence[]` is usually empty and this is where the
+   * reasoning lives, so a panel that ignored it showed "no evidence" while the
+   * engine had plenty. Only non-zero entries are listed — a table of zeroes is
+   * noise, and the zeroes are the indicators that did NOT fire.
+   */
+  const indicators = Object.entries(
+    (network.indicators && !Array.isArray(network.indicators) ? network.indicators : {}) as Record<
+      string,
+      unknown
+    >,
+  ).filter(([, value]) => typeof value === 'number' && value !== 0) as [string, number][];
 
-  if (nodes.length === 0 && evidence.length === 0) {
+  if (nodes.length === 0 && evidence.length === 0 && indicators.length === 0) {
     return <Empty>The network signal returned no evidence for this alert.</Empty>;
   }
 
@@ -194,6 +209,21 @@ export function NetworkNeighbourhood({ network }: { network: AlertDetail['networ
         </p>
       ) : null}
 
+      {indicators.length > 0 ? (
+        <dl className="space-y-2">
+          {indicators.map(([name, value]) => (
+            <div key={name} className="flex items-baseline justify-between gap-4">
+              <dt className="font-mono text-[11px] uppercase tracking-tag text-ink-2">
+                {name.replace(/_/g, ' ')}
+              </dt>
+              <dd className="num font-mono text-[12px] tabular-nums text-ink">
+                {Number.isInteger(value) ? value : value.toFixed(2)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
       {evidence.length > 0 ? (
         <ul className="space-y-2">
           {evidence.map((item, index) => (
@@ -208,8 +238,12 @@ export function NetworkNeighbourhood({ network }: { network: AlertDetail['networ
       ) : null}
 
       <p className="border-t border-rule-soft pt-4 text-[13px] leading-relaxed text-ink-3">
-        This is the neighbourhood recorded for this alert, not a graph you can travel. Walking
-        outward needs an endpoint that returns the next hop.
+        This is the snapshot recorded when the alert was raised. To walk outward from here —
+        further hops, a wider window, the shape of the whole ring — open the{' '}
+        <Link to="/network" className="text-ultra hover:underline">
+          network explorer
+        </Link>
+        .
       </p>
     </div>
   );

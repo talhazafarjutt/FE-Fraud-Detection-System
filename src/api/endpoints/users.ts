@@ -1,15 +1,15 @@
-import { queryString, requestData } from '../client';
+import { requestData, route } from '../client';
 import { type CreateUserInput, type User, userListSchema, userSchema } from '../schemas/users';
 
 export async function listUsers(team?: string, signal?: AbortSignal): Promise<User[]> {
-  return requestData(`/v1/users${queryString({ team })}`, {
+  return requestData(route('/v1/users', { team }), {
     schema: userListSchema,
     ...(signal ? { signal } : {}),
   });
 }
 
 export async function createUser(input: CreateUserInput): Promise<User> {
-  return requestData('/v1/users', {
+  return requestData(route('/v1/users'), {
     method: 'POST',
     body: {
       email: input.email,
@@ -23,7 +23,7 @@ export async function createUser(input: CreateUserInput): Promise<User> {
 }
 
 export async function deactivateUser(userId: string): Promise<User> {
-  return requestData(`/v1/users/${userId}/deactivate`, {
+  return requestData(route('/v1/users/{user_id}/deactivate', { user_id: userId }), {
     method: 'POST',
     schema: userSchema,
   });

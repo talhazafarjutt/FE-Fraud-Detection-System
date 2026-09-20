@@ -166,20 +166,90 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
     model_name: 'fixture-rules',
     model_version: 'fixture-v1',
     model_decision: probability >= 0.9 ? 'BLOCK' : probability >= 0.7 ? 'REVIEW' : 'ALLOW',
-    // V1 fields. The deployed backend returns null for all of these — the
-    // fixtures mirror that so the offline demo shows the same "derived" and
-    // "not available" states a reviewer sees against the real API, rather than
-    // a rosier picture the backend cannot yet produce.
-    risk_score: null,
-    case_id: null,
-    score_id: null,
-    provenance: null,
-    risk_engine_version: null,
-    signals: null,
-    triggered_rules: [],
-    network: null,
-    anomaly: null,
-    decision_reasons: [],
+    /*
+     * Demo mode serves the TARGET shape, so the full investigator flow is
+     * presentable while the deployed API is still on the older contract. The
+     * compatibility layer means the same screens render either one — this is
+     * the richer of the two, not a different UI.
+     */
+    risk_score: Math.round(probability * 100),
+    case_id: uuid(index % 6, 'case'),
+    score_id: uuid(index, 'score'),
+    // An object, mirroring the live contract exactly. This is what pins the
+    // case to the score that raised it.
+    provenance: {
+      transaction_id: uuid(index, 'txn'),
+      score_id: uuid(index, 'score'),
+      alert_id: uuid(index, 'alert'),
+      model_name: 'fixture-rules',
+      model_version: 'fixture-v1',
+      risk_engine_version: 'engine-v1.2.0',
+      scored_at: openedAt,
+    },
+    risk_engine_version: 'engine-v1.2.0',
+    signals: {
+      model_score: Math.round(probability * 100),
+      // A hard rule either fired hard or did not fire at all; it is not a
+      // sliding scale, and showing it as one would misrepresent how rules work.
+      rule_score: index % 3 === 0 ? 100 : 0,
+      anomaly_score: Math.round(Math.min(100, probability * 90 + (index % 11))),
+      // Roughly a third of the ring carries real network evidence.
+      network_score: index % 3 === 2 ? Math.round(40 + (index % 5) * 9) : 0,
+      weighted_score: Math.round(probability * 100),
+      rule_floor_applied: index % 3 === 0,
+    },
+    triggered_rules:
+      index % 3 === 0
+        ? [
+            {
+              rule: 'ORIGIN_ACCOUNT_DRAIN',
+              severity: 'HIGH',
+              description: 'The transfer left the sending account with a balance of zero.',
+            },
+          ]
+        : [],
+    network:
+      index % 3 === 2
+        ? {
+            network_score: Math.round(40 + (index % 5) * 9),
+            // A map of indicator to value, as the live engine returns it.
+            indicators: {
+              receiver_fan_in: 4,
+              pass_through_ratio: 0.97,
+              sender_is_new: 0,
+              receiver_is_new: 1,
+              closes_short_cycle: index % 5 === 2 ? 1 : 0,
+            },
+            evidence: [
+              'Four accounts paid into this one within 48 hours.',
+              'The balance left again within nine minutes of arriving.',
+            ],
+            neighborhood: {
+              nodes: Array.from({ length: 5 }, (_, n) => ({
+                id: uuid(index * 10 + n, 'node'),
+                label: `••${1000 + ((index * 7 + n) % 9000)}`,
+              })),
+              edges: Array.from({ length: 4 }, (_, n) => ({
+                source: uuid(index * 10 + n, 'node'),
+                target: uuid(index * 10 + 4, 'node'),
+              })),
+            },
+          }
+        : null,
+    anomaly: {
+      is_anomaly: probability > 0.6,
+      anomaly_score: Math.round(Math.min(100, probability * 90 + (index % 11))),
+      threshold: 70,
+    },
+    decision_reasons: [
+      { source: 'MODEL', code: 'HIGH_AMOUNT_RATIO', description: 'The amount was unusual for this account.' },
+      ...(index % 3 === 0
+        ? [{ source: 'RULE', code: 'ORIGIN_ACCOUNT_DRAIN', description: 'A hard rule fired.' }]
+        : []),
+      ...(index % 3 === 2
+        ? [{ source: 'NETWORK', code: 'FAN_IN', description: 'Several accounts pay into this one.' }]
+        : []),
+    ],
   };
 });
 
@@ -245,27 +315,38 @@ export const USER_FIXTURES: User[] = [
   },
 ];
 
+/**
+ * Scope sets copied from the live API, verified by signing in as each account
+ * and reading the `scopes` array back. Demo mode must gate exactly what the
+ * real server gates, or the offline run teaches people the wrong permissions
+ * model — in particular that an ADMIN can see case data, which they cannot.
+ */
 export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> = {
   'analyst@example.com': {
-    scopes: ['alerts:read', 'alerts:update', 'transactions:read'],
+    scopes: ['alerts:read', 'alerts:update', 'entities:read', 'transactions:read'],
     team: 'team-alpha',
   },
   'supervisor@example.com': {
     scopes: [
+      'alerts:assign',
+      'alerts:close',
       'alerts:read',
       'alerts:read:all',
       'alerts:update',
-      'alerts:assign',
-      'alerts:close',
+      'audit:read',
+      'entities:read',
+      'feedback:export',
       'transactions:read',
     ],
     team: 'team-alpha',
   },
   'other-analyst@example.com': {
-    scopes: ['alerts:read', 'alerts:update', 'transactions:read'],
+    scopes: ['alerts:read', 'alerts:update', 'entities:read', 'transactions:read'],
     team: 'team-beta',
   },
-  'admin@example.com': { scopes: ['users:manage'], team: 'default' },
+  // ADMIN administers people and reads the trail. No alerts, no cases, no
+  // entities — managing users deliberately does not grant the case files.
+  'admin@example.com': { scopes: ['audit:read', 'users:manage'], team: 'default' },
 };
 
 export const CLIENT_SCOPES: Record<string, string[]> = {

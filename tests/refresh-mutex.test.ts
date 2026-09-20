@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetRefreshState, request } from '@/api/client';
+import { __resetRefreshState, request, route } from '@/api/client';
 import { tokenStore } from '@/auth/tokenStore';
 
 /**
@@ -91,9 +91,9 @@ describe('refresh mutex', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const pending = [
-      request('/v1/fraud-alerts'),
-      request('/v1/fraud-alerts/abc'),
-      request('/v1/transactions/xyz'),
+      request(route('/v1/fraud-alerts')),
+      request(route('/v1/fraud-alerts/{alert_id}', { alert_id: 'abc' })),
+      request(route('/v1/transactions/{transaction_id}', { transaction_id: 'xyz' })),
     ];
 
     // Let all three reach their 401 and queue on the shared refresh.
@@ -129,7 +129,7 @@ describe('refresh mutex', () => {
 
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(request('/v1/fraud-alerts')).rejects.toMatchObject({ status: 401 });
+    await expect(request(route('/v1/fraud-alerts'))).rejects.toMatchObject({ status: 401 });
 
     const alertCalls = calls.filter((url) => url.includes('/v1/fraud-alerts'));
     const refreshCalls = calls.filter((url) => url.includes('/v1/auth/refresh'));
@@ -153,7 +153,7 @@ describe('refresh mutex', () => {
       }),
     );
 
-    await expect(request('/v1/fraud-alerts')).rejects.toBeDefined();
+    await expect(request(route('/v1/fraud-alerts'))).rejects.toBeDefined();
     expect(tokenStore.get()).toBeNull();
   });
 
@@ -174,7 +174,7 @@ describe('refresh mutex', () => {
     );
 
     await expect(
-      request('/v1/transactions', { method: 'POST', bearerOverride: 'machine-token' }),
+      request(route('/v1/transactions'), { method: 'POST', bearerOverride: 'machine-token' }),
     ).rejects.toMatchObject({ status: 401 });
 
     // Machine tokens have no refresh family — refreshing would be meaningless.

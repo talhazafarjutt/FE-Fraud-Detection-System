@@ -50,10 +50,20 @@ export const looseAlertSeverity = z.union([alertSeveritySchema, z.string()]);
  * so it is not guaranteed to be {feature, contribution}. Keep only the entries
  * that are usable and drop the rest rather than failing the whole page.
  */
-export const reasonSchema = z.object({
-  feature: z.string(),
-  contribution: z.number(),
-});
+export const reasonSchema = z
+  .object({
+    feature: z.string(),
+    contribution: z.number(),
+    /**
+     * Present on the current contract and worth keeping: `direction` says which
+     * way the feature pushed, `description` is the human sentence. Declaring
+     * them is what stops Zod's default key-stripping from throwing them away
+     * before they reach the screen.
+     */
+    direction: z.string().nullish(),
+    description: z.string().nullish(),
+  })
+  .passthrough();
 export type Reason = z.infer<typeof reasonSchema>;
 
 export const looseExplanationSchema = z

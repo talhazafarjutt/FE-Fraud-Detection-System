@@ -10,6 +10,24 @@ import {
 } from './common';
 
 /**
+ * The score's origin: which model, which engine version, which score row. This
+ * is what pins a case to the exact score that raised it, so a re-score later
+ * cannot quietly rewrite the evidence.
+ */
+export const provenanceSchema = z
+  .object({
+    transaction_id: uuid.nullish(),
+    score_id: uuid.nullish(),
+    alert_id: uuid.nullish(),
+    model_name: z.string().nullish(),
+    model_version: z.string().nullish(),
+    risk_engine_version: z.string().nullish(),
+    scored_at: isoDateTime.nullish(),
+  })
+  .passthrough();
+export type Provenance = z.infer<typeof provenanceSchema>;
+
+/**
  * `.passthrough()` throughout: the risk engine is mid-rollout and the backend is
  * adding fields to these payloads. Stripping unknown keys is how `risk_score`
  * and `alert_severity` went missing from the transaction table without any
@@ -35,10 +53,18 @@ export const alertSchema = z
     closed_at: isoDateTime.nullable(),
     amount: decimalString.nullable().default(null),
     currency: z.string().nullable().default(null),
-    /** Present in the V1 contract; absent from every deployed response so far. */
     case_id: uuid.nullable().default(null),
     score_id: uuid.nullable().default(null),
-    provenance: z.string().nullable().default(null),
+    /**
+     * An OBJECT, not a string.
+     *
+     * This was typed as `z.string()`, which meant EVERY alert row on the current
+     * contract failed validation. Tolerant parsing then dropped all fifty and
+     * the queue rendered "no alerts match these filters" — a wrong-but-plausible
+     * empty state, with a 200 in the network panel and nothing in the console.
+     * Exactly the silent class of failure this schema layer exists to prevent.
+     */
+    provenance: provenanceSchema.nullable().default(null),
   })
   .passthrough();
 export type Alert = z.infer<typeof alertSchema>;
@@ -95,15 +121,23 @@ export type DecisionReason = z.infer<typeof decisionReasonSchema>;
 export const networkSchema = z
   .object({
     network_score: z.number().nullable().default(null),
-    indicators: z.array(z.unknown()).default([]),
-    evidence: z.array(z.unknown()).default([]),
+    /**
+     * A MAP of indicator name to value on the current contract
+     * (`{receiver_fan_in: 4.0, ...}`), an array on the older one. Accept both:
+     * a wrong container type here fails the whole alert detail.
+     */
+    indicators: z
+      .union([z.record(z.unknown()), z.array(z.unknown())])
+      .nullish()
+      .default({}),
+    evidence: z.array(z.unknown()).nullish().default([]),
     neighborhood: z
       .object({
         nodes: z.array(z.unknown()).default([]),
         edges: z.array(z.unknown()).default([]),
       })
       .passthrough()
-      .nullable()
+      .nullish()
       .default(null),
   })
   .passthrough();
@@ -139,7 +173,11 @@ export const alertPageSchema = z.object({
   next_cursor: z.string().nullable().default(null),
   page_size: z.number().int(),
 });
-export type AlertPage = z.infer<typeof alertPageSchema>;
+/**
+ * `skipped` counts rows dropped by tolerant parsing — see api/compat.ts. The UI
+ * surfaces it as a quiet notice rather than failing the page.
+ */
+export type AlertPage = z.infer<typeof alertPageSchema> & { skipped: number };
 
 export const alertPatchSchema = z.object({
   status: alertStatusSchema.optional(),

@@ -208,10 +208,13 @@ export default function AlertDetailPage() {
           title="Provenance"
           hint="The exact score this alert was raised from."
         />
-        <dl className="grid gap-px border border-rule bg-rule sm:grid-cols-3">
+        <dl className="grid gap-px border border-rule bg-rule sm:grid-cols-4">
           <Fact label="Model" value={alert.model_name ?? '—'} mono />
           <Fact label="Model version" value={alert.model_version ?? '—'} mono />
           <Fact label="Risk engine" value={alert.risk_engine_version ?? 'Not recorded'} mono />
+          {/* The score row this alert was raised from. A case is pinned to it,
+              so a later re-score cannot rewrite what the reviewer saw. */}
+          <Fact label="Score" value={alert.score_id ? shortId(alert.score_id) : '—'} mono />
         </dl>
       </section>
 

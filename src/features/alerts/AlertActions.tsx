@@ -7,7 +7,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
 import { isTerminalStatus } from '@/api/schemas/feedback';
-import { BackendPending } from '@/components/BackendPending';
+import { Link } from 'react-router-dom';
 import { titleCase } from '@/lib/format';
 import { alertKeys } from './queries';
 import { transitionsFor } from './stateMachine';
@@ -23,10 +23,16 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
   const [note, setNote] = useState('');
   const [assignee, setAssignee] = useState<string>('');
   /**
-   * A terminal status is a verdict, and the verdict moved to the case. The
-   * deployed API rejects a feedback block on this endpoint with 422, and
-   * PATCH /v1/cases/{id} — where it now belongs — does not exist yet. So the
-   * console blocks the move rather than firing a request that cannot succeed.
+   * A terminal status is a VERDICT, and a verdict belongs to the case, not to
+   * one alert inside it.
+   *
+   * This endpoint rejects a feedback block with 422 — deliberately. One scheme
+   * gets one judgement: concluding nine alerts separately would emit nine
+   * correlated training labels for a single fraud event and skew the next
+   * model. `PATCH /v1/cases/{id}` is where the verdict goes, behind the
+   * required feedback form.
+   *
+   * So the move is blocked here and the user is sent to the case instead.
    */
   const needsVerdict = status !== '' && isTerminalStatus(status);
 
@@ -66,8 +72,8 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
     !canUpdate ||
     nothingToSubmit ||
     Boolean(blockedReason) ||
-    // A verdict cannot be recorded anywhere yet, so the control is blocked
-    // rather than allowed to produce a 422 the user cannot act on.
+    // Triage moves work here; a verdict does not, and would 422. Blocked
+    // rather than allowed to fail in a way the user cannot act on.
     needsVerdict ||
     mutation.isPending;
 
@@ -150,17 +156,31 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
         </div>
 
         {needsVerdict ? (
-          <BackendPending
-            feature="caseVerdict"
-            context="Triage moves still work — it is the final verdict, and only that, which has nowhere to go."
-          />
+          <div className="border border-amber bg-paper p-4">
+            <p className="mono-label mb-2 text-amber">A verdict belongs to the case</p>
+            <p className="mb-3 text-[13px] text-ink-2">
+              {titleCase(status)} is a judgement about the whole scheme, not about this one
+              alert. It is recorded once, on the investigation, with the label, confidence and
+              model agreement that make it usable as training data.
+            </p>
+            {alert.case_id ? (
+              <Link to={`/cases/${alert.case_id}`} className="btn btn--ghost">
+                Conclude on the investigation
+              </Link>
+            ) : (
+              <p className="text-[13px] text-ink-3">
+                This alert is not attached to an investigation yet. Attach it to one from the
+                case page, then conclude there.
+              </p>
+            )}
+          </div>
         ) : null}
 
         <Button
           onClick={() => mutation.mutate()}
           disabled={submitDisabled}
           className="w-full"
-          title={needsVerdict ? 'Recording a verdict needs the case endpoint.' : blockedReason}
+          title={needsVerdict ? 'A verdict is recorded on the investigation.' : blockedReason}
         >
           {mutation.isPending ? 'Recording' : 'Record action'}
         </Button>

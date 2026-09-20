@@ -46,6 +46,13 @@ export default function TransactionListPage() {
     [query.data],
   );
 
+  // Rows the API returned that did not match the expected shape. Shown rather
+  // than hidden: a quietly shorter table is worse than an honest count.
+  const skipped = useMemo(
+    () => query.data?.pages.reduce((sum, p) => sum + (p.skipped ?? 0), 0) ?? 0,
+    [query.data],
+  );
+
   const set = useCallback(<K extends keyof TransactionFilters>(
     key: K,
     value: TransactionFilters[K],
@@ -203,6 +210,12 @@ export default function TransactionListPage() {
             {query.isPending
               ? 'Loading'
               : `${rows.length} loaded · ${flagged.length} flagged · ${scored.length} scored`}
+            {/* A bad row is dropped, not fatal — but never silently. */}
+            {skipped > 0 ? (
+              <span className="ml-3 text-amber" title="These rows did not match the expected shape and were left out.">
+                {skipped} row{skipped === 1 ? '' : 's'} skipped
+              </span>
+            ) : null}
           </span>
           <Button variant="ghost" onClick={() => setFilters({ limit: filters.limit ?? 50 })}>
             Clear filters

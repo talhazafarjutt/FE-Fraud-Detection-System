@@ -1,167 +1,173 @@
-# Backend work this console needs
+# Backend status
 
-Verified against the deployed API on **2026-09-10** by reading its OpenAPI schema and calling every
-route with a real supervisor token. Nothing here is taken from a spec.
+Verified on **2026-09-19** by reading `/openapi.json` from the running backend and calling every
+route with a real token for each of the four seeded accounts. Nothing below is taken from a brief.
 
-**Base URL:** `https://fraud-detection-system-fmh3.onrender.com`
+Two surfaces answer today, and they are not the same:
+
+| | What it is | Paths |
+|---|---|---|
+| **LOCAL** | The `v1` working tree, `make up`, `http://localhost:8000` | **26** |
+| **Hosted** | `https://fraud-detection-system-fmh3.onrender.com` | **18** |
+
+The gap is a **pending deploy, not missing work**. Same contract; only the base URL differs. The
+console is built against LOCAL and gates nothing — it also survives the older hosted contract, for
+the reason in §3.
 
 ---
 
-## In ten seconds
+## 1. Live on LOCAL — all 26 paths
 
-| | |
-|---|---|
-| **Available and wired up** | 17 routes |
-| **Missing — blocks a screen** | 6 routes, 4 capabilities |
-| **Biggest gap** | The whole `/v1/cases` layer. No investigations, no verdict, no feedback export. |
-
----
-
-## 1. Available — 17 routes, all in use
-
-These are implemented and the console calls them today.
+### Auth · also on the hosted URL
 
 | Route | Used by |
 |---|---|
-| `POST /v1/auth/token` | Sign-in |
-| `POST /v1/auth/client-token` | Ingest session on the submit screen |
-| `POST /v1/auth/refresh` | Token refresh (single-flight) |
+| `POST /v1/auth/token` | Sign-in. **JSON body**, `{username, password}` — form-encoded returns 422 |
+| `POST /v1/auth/client-token` | Ingest / ML machine session |
+| `POST /v1/auth/refresh` | Rotating; replaying an old token revokes the family |
 | `POST /v1/auth/logout` | Sign-out |
-| `GET /v1/transactions` | The ledger — fraud and non-fraud together |
-| `GET /v1/transactions/{id}` | Linked transaction on an alert |
+| `GET /healthz` · `GET /readyz` | Header status. No `/v1` prefix |
+
+### Transactions and alerts · also on the hosted URL
+
+| Route | Used by |
+|---|---|
+| `GET /v1/transactions` | The ledger |
+| `GET /v1/transactions/{id}` | Linked transaction |
 | `GET /v1/transactions/{id}/score` | Score polling after a 202 |
 | `POST /v1/transactions` | Submitting a transaction |
+| `POST /v1/scores` | Machine score push (simulator) |
 | `GET /v1/fraud-alerts` | Alert queue |
-| `GET /v1/fraud-alerts/{id}` | Alert detail and the whole evidence surface |
-| `PATCH /v1/fraud-alerts/{id}` | Triage, assign — **not** the verdict, see §2.1 |
+| `GET /v1/fraud-alerts/{id}` | Alert detail and evidence |
+| `PATCH /v1/fraud-alerts/{id}` | Triage and assign — **not** the verdict |
 | `GET /v1/metrics/overview` | Dashboard |
 | `POST /v1/users` · `GET /v1/users` · `POST /v1/users/{id}/deactivate` | User admin |
-| `GET /healthz` · `GET /readyz` | Header status |
 
----
+### The investigation layer · LOCAL only, until the deploy lands
 
-## 2. Missing — what the backend still owes
-
-Each blocks a named screen. The console shows a panel naming the endpoint rather than rendering
-anything invented. The registry is `src/api/unavailable.ts`; delete an entry when it ships and the
-compiler points at every screen to wire up.
-
-### 2.1 The case layer — **highest priority**
-
-```
-GET    /v1/cases                        -> 404
-GET    /v1/cases/{id}                   -> 404
-PATCH  /v1/cases/{id}                   -> 404
-POST   /v1/cases/{id}/alerts            -> 404
-DELETE /v1/cases/{id}/alerts/{alert_id} -> 404
-```
-
-**Blocks:** the Investigations and Cases sections entirely, and the verdict on every alert.
-
-A case groups the alerts of one scheme so a nine-alert ring is investigated once and judged once.
-Without it, each alert is worked alone and there is nowhere to record an outcome.
-
-**This is currently a broken flow, not just a missing one.** The verdict has already been moved off
-the alert: `PATCH /v1/fraud-alerts/{id}` now rejects a `feedback` block with **422**, verified
-against production. Its replacement does not exist. So the console can move an alert through
-triage, but a supervisor cannot conclude anything anywhere. The close control is disabled and
-labelled rather than allowed to fire a request that cannot succeed.
-
-Alert rows also do not yet carry `case_id`, `score_id` or `provenance` — so even once the routes
-land, an alert cannot be linked back to its case without those.
-
-### 2.2 Feedback export
-
-```
-GET /v1/feedback/export -> 404
-```
-
-**Blocks:** pulling recorded verdicts as training data.
-
-No `feedback:export` scope is granted on any seeded account either, so both the route and the scope
-are outstanding. Moot until §2.1 exists — there are no verdicts to export.
-
-### 2.3 Entities
-
-```
-GET /v1/entities, /v1/entities/{id}, /v1/entities/{id}/transactions -> no route
-```
-
-**Blocks:** the Entities section, and every entity link elsewhere.
-
-The database holds parties, persons, companies, accounts and holder relationships. Nothing exposes
-them.
-
-### 2.4 Network explorer
-
-```
-GET /v1/network/{entity_id}, /v1/network/expand -> no route
-```
-
-**Blocks:** the Network section.
-
-A global explorer needs an endpoint returning the next hop; without one a clickable node is a dead
-end. The per-alert `network.neighborhood` is enough for a local snapshot and is rendered on the
-alert itself — but that field is null on every alert today (§3).
-
-### 2.5 Audit log
-
-```
-GET /v1/audit -> no route
-```
-
-**Blocks:** the Audit section.
-
-Audit records are written server-side but cannot be read back. The per-alert `events[]` trail is
-real and complete, and is shown on each alert; what is missing is the view across all of them.
-
----
-
-## 3. Deployed but not producing — the risk engine
-
-These keys are present on `GET /v1/fraud-alerts/{id}` but **null or empty on all 15 alerts
-sampled**. Every alert still comes from `stub-rules`.
-
-| Field | Observed |
+| Route | Used by |
 |---|---|
-| `risk_score` | `null` on every alert and every transaction row (100/100 scanned) |
-| `signals` | `null` |
-| `triggered_rules` | `[]` |
-| `network` | `null` |
-| `anomaly` | `null` |
-| `decision_reasons` | `[]` |
-| `risk_engine_version` | `null` |
-
-**Consequences the console handles rather than hides:**
-
-- **`fraud_probability` is not gone** and is currently the only populated score. The UI prefers
-  `risk_score` when present and falls back to the probability, labelling that value **derived** so
-  nobody reads a legacy probability as the new score.
-- The four-signal breakdown, rules, reasons and network panels each render an explicit empty state
-  naming what was not recorded.
-
-Once the engine starts producing, these panels fill in with no frontend change.
-
-Also null on `GET /v1/metrics/overview`: `alert_rate` and `flagged_amount`.
+| `GET /v1/cases` | Cases, Investigations |
+| `GET /v1/cases/{case_id}` | Case detail, member alerts, verdict |
+| `PATCH /v1/cases/{case_id}` | Triage, assignment and **the verdict** |
+| `POST /v1/cases/{case_id}/alerts` | Attaching an alert the grouping missed |
+| `DELETE /v1/cases/{case_id}/alerts/{alert_id}` | Detaching one judged unrelated |
+| `GET /v1/entities` · `/{party_id}` · `/{party_id}/transactions` | Entities |
+| `GET /v1/network/accounts/{account_id}` · `/v1/network/entities/{party_id}` | Network explorer |
+| `GET /v1/audit-logs` | Audit log, and the per-case history timeline |
+| `GET /v1/feedback/export` | Retraining pull |
 
 ---
 
-## 4. Frontend defects this audit found — all fixed
+## 2. Live on the hosted URL — 18 paths
 
-Recorded because each was silent: nothing threw, the UI simply showed less than it should have.
+Everything in the two "also on the hosted URL" tables above. The eight investigation paths 404
+there. That is the entire difference.
 
-1. **`risk_score` and `alert_severity` were stripped by the response schema.** Zod drops unknown
-   keys by default and the schema never listed them, so both columns rendered blank with a 200 in
-   the network panel and nothing in the console. Both are now declared, and list schemas use
-   `.passthrough()` so a newly added backend field survives instead of vanishing the same way.
+---
 
-2. **Date filters were being ignored.** The console sent `from`/`to`; the API filters on
-   `booked_from`/`booked_to` and ignores unknown query params without erroring — so the filter
-   looked functional but never changed the result set. Verified fixed: a future `booked_from` now
-   takes the table from 50 rows to 0.
+## 3. Quirks the console handles
 
-3. **The transaction list schema was based on the detail schema**, which requires `mcc` and the two
-   balance fields that list rows do not return. Every response failed to parse and the table sat on
-   "Loading" indefinitely. The list row is now declared standalone.
+- **The hosted contract returns `risk_score: null`** and ranks on `fraud_probability` (0–1); LOCAL
+  populates `risk_score` (0–100) and drops the probability. `normaliseRisk` in `src/api/compat.ts`
+  converts in one place and labels the fallback **derived**, so a legacy probability is never read
+  as the new score. A null score stays null — never zero, or an unscored row sorts as the safest
+  thing in the list.
+- **The list row is slimmer than the detail record** — no `mcc`, no balances. Basing the list
+  schema on the detail schema made every ledger response fail to parse.
+- **Unknown query params are ignored, not rejected.** A wrong filter name looks like a working
+  filter that changes nothing. Date filters are `booked_from` / `booked_to`.
+- **`/v1/metrics/overview` takes `from` / `to` / `bucket`** — not `days`, whatever a brief says.
+  `alert_rate` and `flagged_amount` live under `totals`, not at the top level.
+- `precision` is often `null` — correct, it needs concluded cases. Recall is never returned;
+  `precision_note` explains why and is rendered verbatim.
+- **404, not 403, for another team's record.** A missing thing and one you are not cleared to see
+  are indistinguishable by design, so a detail 404 is worded as "it may belong to another team".
+- **The hosted API sleeps when idle.** A cold first request takes 30–60s; the header shows
+  *Waking up*, not *Unreachable*.
 
-`tests/v1-contract.test.ts` pins all three.
+---
+
+## 4. Scopes, as the server actually grants them
+
+Verified by signing in as each account and reading the `scopes` array back.
+
+| Account | Scopes | Sees |
+|---|---|---|
+| `analyst@example.com` | `alerts:read` `alerts:update` `entities:read` `transactions:read` | team-alpha |
+| `other-analyst@example.com` | same | team-beta — **empty, and correct** |
+| `supervisor@example.com` | the analyst set plus `alerts:read:all` `alerts:assign` `alerts:close` `audit:read` `feedback:export` | every team |
+| `admin@example.com` | `audit:read` `users:manage` | users and the trail only — **no** alerts, cases or entities (403 on all three) |
+
+Nav items, routes and the workflow view are all driven from this array, never from a role name.
+
+---
+
+## 5. Still outstanding on the backend
+
+1. **Team-to-team handover.** An alert's `team` is fixed at ingest and there is no route to move
+   it. This is the only genuinely absent capability left.
+
+2. **No way for a client to learn its own team.** The access token carries no `team` claim
+   (claims are `aud exp iat iss jti nbf scopes sub typ`), the login response does not return one,
+   and there is no `/v1/users/me`. The console infers the team by observing the rows the server
+   returns — which works for everyone except the user who most needs it: a team with no traffic
+   returns no rows to infer from, so `other-analyst` cannot be told their own team's name while
+   being shown why every list is empty. **A `team` claim on the token, or `/v1/users/me`, closes
+   this.** Until then the empty states explain the filtering rule without naming the team.
+
+3. **The refresh token is returned in the response body**, so a pure HttpOnly-cookie design is not
+   available to the frontend alone. It is held in memory with the access token, and a page reload
+   signs the user out. The production fix is a backend change: set it as
+   `HttpOnly; Secure; SameSite=Strict` and stop returning it in the body.
+
+---
+
+## 6. Frontend defects this round found — all fixed
+
+Recorded because every one was silent: nothing threw, the screen just showed less than it should.
+
+1. **The ledger could not parse a single row.** The list schema extended the detail schema, which
+   requires fields list rows omit. Every response failed and the table sat on "Loading" with a 200
+   in the network panel.
+2. **`risk_score` and `alert_severity` were stripped by the schema.** Zod drops unknown keys and
+   neither was declared, so the columns rendered blank.
+3. **Date filters were ignored** — the console sent `from`/`to` against an API that filters on
+   `booked_from`/`booked_to` and ignores unknown params silently.
+4. **One bad row killed the whole page.** Pages now parse row by row; a bad row is dropped, counted
+   and reported, and dev logs the raw row.
+5. **A failed chunk load looked like a crashed route** (`Failed to fetch dynamically imported
+   module … AuditLogPage.tsx`). Content-hashed chunks change name on deploy, so a browser holding
+   an old `index.html` asks for filenames the server no longer has. Routes now reload once, guarded
+   so they cannot loop, and `tests/routes.test.ts` imports every route module so a dangling import
+   fails the build instead of a screen.
+6. **A healthy API reported as unreachable.** `fetch` rejects with no status for CORS, DNS, offline
+   and a dead server alike, and all four were being shown as "down". Network failures are now their
+   own state and print the base URL they tried.
+7. **Post-login routing was duplicated** in the login page and the landing route, and the copies
+   drifted. There is now one place that decides where a signed-in user goes.
+
+`tests/v1-contract.test.ts`, `tests/compat.test.ts`, `tests/routes.test.ts` and
+`tests/demo-mode.test.ts` pin all of these.
+
+---
+
+## 7. How the contract is kept honest
+
+`src/api/schema.d.ts` is generated from the backend's own `/openapi.json` and committed. Every
+request path is built by `route()`, whose first argument is `keyof paths` — so **a path that does
+not exist on the backend does not typecheck**, which is precisely the failure mode that produced
+the previous round of 404s.
+
+```bash
+npm run schema:gen
+```
+
+```bash
+npm run schema:check
+```
+
+`schema:check` runs in CI. It compares the committed types against a live backend and fails on
+drift; with no backend reachable it skips rather than failing for the wrong reason. **Read the diff
+when it fires** — that diff is the contract change, and it is the only warning before a screen
+breaks.

@@ -144,3 +144,116 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return 'Something went wrong.';
 }
+
+/**
+ * `fetch` rejected: we never got a response at all.
+ *
+ * This is a genuinely different failure from "the server answered 500", and
+ * conflating them is how a healthy API got reported as down when the real cause
+ * was a CORS preflight. It carries the base URL it tried, because a wrong
+ * `VITE_API_BASE_URL` is the single most common cause and naming it saves the
+ * next hour of debugging.
+ */
+export class NetworkError extends Error {
+  readonly status = -1;
+  readonly baseUrl: string;
+
+  constructor(baseUrl: string, cause?: unknown) {
+    super(`Cannot reach the API at ${baseUrl}.`);
+    this.name = 'NetworkError';
+    this.baseUrl = baseUrl;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+export function isNetworkError(err: unknown): err is NetworkError {
+  return err instanceof NetworkError;
+}
+
+/* ------------------------------------------------------------------ *
+ * The five states
+ *
+ * Every screen distinguishes all five. Collapsing them into one "Something went
+ * wrong" throws away the message the backend wrote for the user, and makes a
+ * misconfigured base URL look identical to a permissions problem.
+ * ------------------------------------------------------------------ */
+
+export type ApiFailureKind = 'network' | 'http' | 'parse';
+
+export interface ApiFailure {
+  kind: ApiFailureKind;
+  /** HTTP status, or -1 for a network error and 0 for a parse failure. */
+  status: number;
+  title: string;
+  detail: string;
+  /** Transitions the server says are legal — populated on a 409. */
+  allowedTransitions?: string[];
+  /** Field-level messages — populated on a 422. */
+  fieldErrors?: { field: string; message: string }[];
+  problem?: Problem;
+}
+
+function readAllowedTransitions(problem: Problem): string[] | undefined {
+  const raw = problem.extras['allowed_transitions'];
+  if (!Array.isArray(raw)) return undefined;
+  const values = raw.filter((v): v is string => typeof v === 'string');
+  return values.length ? values : undefined;
+}
+
+function readFieldErrors(problem: Problem): { field: string; message: string }[] | undefined {
+  const raw = problem.extras['errors'];
+  if (!Array.isArray(raw)) return undefined;
+  const values = raw
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null;
+      const e = entry as { field?: unknown; message?: unknown };
+      if (typeof e.field !== 'string' || typeof e.message !== 'string') return null;
+      return { field: e.field, message: e.message };
+    })
+    .filter((v): v is { field: string; message: string } => v !== null);
+  return values.length ? values : undefined;
+}
+
+/** Turn any thrown value into one of the five states the UI knows how to render. */
+export function describeFailure(err: unknown): ApiFailure {
+  if (err instanceof NetworkError) {
+    return {
+      kind: 'network',
+      status: -1,
+      title: 'Cannot reach the API',
+      detail:
+        `Nothing answered at ${err.baseUrl}. The API may be down, or VITE_API_BASE_URL may ` +
+        'point at the wrong backend. A browser CORS block also looks exactly like this.',
+    };
+  }
+
+  if (err instanceof SchemaError) {
+    return {
+      kind: 'parse',
+      status: 0,
+      title: 'The API returned data this version cannot read',
+      detail: err.message,
+    };
+  }
+
+  if (err instanceof ApiError) {
+    return {
+      kind: 'http',
+      status: err.status,
+      title: err.problem.title,
+      detail: err.problem.detail,
+      ...(readAllowedTransitions(err.problem)
+        ? { allowedTransitions: readAllowedTransitions(err.problem) }
+        : {}),
+      ...(readFieldErrors(err.problem) ? { fieldErrors: readFieldErrors(err.problem) } : {}),
+      problem: err.problem,
+    };
+  }
+
+  return {
+    kind: 'http',
+    status: 0,
+    title: 'Request failed',
+    detail: err instanceof Error ? err.message : 'Something went wrong.',
+  };
+}

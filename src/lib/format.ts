@@ -55,3 +55,13 @@ export function titleCase(value: string): string {
     .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : word))
     .join(' ');
 }
+
+/**
+ * Team names already carry their own prefix on this backend ("team-alpha"), so
+ * rendering "Team {team}" produced "Team team-alpha". Show the name as the
+ * server spells it and let the surrounding label do the explaining.
+ */
+export function teamLabel(team: string | null | undefined): string {
+  if (!team) return '—';
+  return team;
+}

@@ -1,4 +1,5 @@
-import { queryString, requestData } from '../client';
+import { requestData, route } from '../client';
+import { parsePageTolerant } from '../compat';
 import {
   type Alert,
   type AlertDetail,
@@ -6,7 +7,6 @@ import {
   type AlertPage,
   type AlertPatch,
   alertDetailSchema,
-  alertPageSchema,
   alertSchema,
 } from '../schemas/alerts';
 
@@ -15,21 +15,23 @@ export async function listAlerts(
   cursor: string | null,
   signal?: AbortSignal,
 ): Promise<AlertPage> {
-  const qs = queryString({
-    status: filters.status,
-    severity: filters.severity,
-    min_probability: filters.min_probability,
-    limit: filters.limit,
-    cursor,
-  });
-  return requestData(`/v1/fraud-alerts${qs}`, {
-    schema: alertPageSchema,
-    ...(signal ? { signal } : {}),
-  });
+  // Row-by-row, for the same reason as the ledger: one odd row must not blank
+  // the whole queue.
+  const payload = await requestData<unknown>(
+    route('/v1/fraud-alerts', {
+      status: filters.status,
+      severity: filters.severity,
+      min_probability: filters.min_probability,
+      limit: filters.limit,
+      cursor,
+    }),
+    { ...(signal ? { signal } : {}) },
+  );
+  return parsePageTolerant(alertSchema, payload);
 }
 
 export async function getAlert(alertId: string, signal?: AbortSignal): Promise<AlertDetail> {
-  return requestData(`/v1/fraud-alerts/${alertId}`, {
+  return requestData(route('/v1/fraud-alerts/{alert_id}', { alert_id: alertId }), {
     schema: alertDetailSchema,
     ...(signal ? { signal } : {}),
   });
@@ -57,7 +59,7 @@ export async function patchAlert(alertId: string, patch: AlertPatch): Promise<Al
    * pending rather than firing a request that cannot succeed.
    */
 
-  return requestData(`/v1/fraud-alerts/${alertId}`, {
+  return requestData(route('/v1/fraud-alerts/{alert_id}', { alert_id: alertId }), {
     method: 'PATCH',
     body,
     schema: alertSchema,

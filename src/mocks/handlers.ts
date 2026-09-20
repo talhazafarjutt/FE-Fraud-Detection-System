@@ -10,6 +10,15 @@ import {
   USER_FIXTURES,
 } from './fixtures';
 import { computeOverview } from './metrics';
+import {
+  ACCOUNT_FIXTURES,
+  ALERTS_PER_ACCOUNT,
+  AUDIT_FIXTURES,
+  CASE_FIXTURES,
+  EDGE_FIXTURES,
+  ENTITY_FIXTURES,
+  type MockCase,
+} from './investigation';
 
 /**
  * MSW handlers mirroring the real backend closely enough that the whole console
@@ -31,6 +40,65 @@ const alerts = ALERT_FIXTURES.map((alert) => ({ ...alert, events: [...alert.even
 const users = [...USER_FIXTURES];
 const idempotencyLog = new Map<string, Record<string, unknown>>();
 const transactions = [...ALL_TRANSACTIONS];
+
+/** Mutable copies so PATCH, attach and detach persist for the life of the page. */
+const cases: MockCase[] = CASE_FIXTURES.map((entry) => ({
+  ...entry,
+  alerts: [...entry.alerts],
+}));
+const auditLog = [...AUDIT_FIXTURES];
+let nextAuditId = Math.max(0, ...auditLog.map((row) => row.id)) + 1;
+
+/** Every mutation writes a trail entry, exactly as the backend does. */
+function recordAudit(
+  actor: string,
+  action: string,
+  entity: string,
+  entityId: string,
+  detail: Record<string, unknown> | null,
+) {
+  auditLog.unshift({
+    id: nextAuditId++,
+    actor,
+    actor_type: 'user',
+    action,
+    entity,
+    entity_id: entityId,
+    request_id: mockUuid().replace(/-/g, ''),
+    ip: '127.0.0.1',
+    detail,
+    created_at: new Date().toISOString(),
+  });
+}
+
+/**
+ * Keyset pagination, shared by every list below.
+ *
+ * The cursor is the previous page's last id — there is no offset on this API
+ * and there never will be, so the mock must not offer one either.
+ */
+function paginate<T extends { id: string | number }>(
+  rows: T[],
+  url: URL,
+  max = 200,
+): { items: T[]; next_cursor: string | null; page_size: number } {
+  const limit = Math.min(max, Math.max(1, Number(url.searchParams.get('limit') ?? '50')));
+  const cursor = url.searchParams.get('cursor');
+  const start = cursor ? rows.findIndex((row) => String(row.id) === cursor) + 1 : 0;
+  const page = rows.slice(start, start + limit);
+  const last = page.at(-1);
+  const more = start + limit < rows.length;
+  return {
+    items: page,
+    next_cursor: more && last ? String(last.id) : null,
+    page_size: limit,
+  };
+}
+
+/** Cross-team access is masked as 404, never 403 — the same as the backend. */
+function visibleTo(session: { scopes: string[]; team: string }, team: string): boolean {
+  return session.scopes.includes('alerts:read:all') || team === session.team;
+}
 
 /**
  * §16.3 CASE_FEEDBACK. `model_probability` and `model_version` are COPIED at
@@ -62,6 +130,100 @@ const feedbackRows: FeedbackRow[] = [];
  */
 function mockUuid(): string {
   return crypto.randomUUID();
+}
+
+/** Stable UUID for a given key, so a mocked row keeps its id across renders. */
+function mockUuidFor(key: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = Math.imul(hash ^ key.charCodeAt(i), 16777619) >>> 0;
+  }
+  const hex = (n: number, len: number) =>
+    Math.abs(n).toString(16).padStart(len, '0').slice(0, len);
+  return [
+    hex(hash, 8),
+    hex(hash >> 4, 4),
+    `4${hex(hash >> 8, 3)}`,
+    `a${hex(hash >> 12, 3)}`,
+    hex(hash * 31, 12),
+  ].join('-');
+}
+
+/**
+ * Breadth-first expansion from a focus account, honouring depth, window and the
+ * node budget — and reporting `truncated` honestly when the budget stops it.
+ * A mock that always returned the full graph would hide the one state an
+ * investigator most needs to notice.
+ */
+function graphResponse(request: Request, focusAccountId: string) {
+  const guard = requireScope(request, 'alerts:read');
+  if (guard.error) return guard.error;
+
+  const url = new URL(request.url);
+  const depth = Math.min(3, Math.max(1, Number(url.searchParams.get('depth') ?? '2')));
+  const windowDays = Math.min(
+    365,
+    Math.max(1, Number(url.searchParams.get('window_days') ?? '30')),
+  );
+  const maxNodes = Math.min(500, Math.max(10, Number(url.searchParams.get('max_nodes') ?? '120')));
+
+  if (!ACCOUNT_FIXTURES.some((a) => a.id === focusAccountId)) {
+    return problem(404, 'Not found', 'No account with that identifier is visible to you.');
+  }
+
+  const cutoff = Date.now() - windowDays * 86_400_000;
+  const inWindow = EDGE_FIXTURES.filter((e) => Date.parse(e.last_booked_at) >= cutoff);
+
+  const hops = new Map<string, number>([[focusAccountId, 0]]);
+  let frontier = [focusAccountId];
+  let truncated = false;
+
+  for (let hop = 1; hop <= depth; hop += 1) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const edge of inWindow) {
+        for (const other of [
+          edge.source === id ? edge.target : null,
+          edge.target === id ? edge.source : null,
+        ]) {
+          if (!other || hops.has(other)) continue;
+          if (hops.size >= maxNodes) {
+            truncated = true;
+            continue;
+          }
+          hops.set(other, hop);
+          next.push(other);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  const nodes = [...hops.entries()].map(([id, hop]) => {
+    const account = ACCOUNT_FIXTURES.find((a) => a.id === id);
+    return {
+      id,
+      label: account ? `Account ••••${account.account_last4}` : null,
+      account_last4: account?.account_last4 ?? null,
+      currency: account?.currency ?? null,
+      country_code: account?.country_code ?? null,
+      status: account?.status ?? null,
+      hop,
+      is_focus: id === focusAccountId,
+      alert_count: ALERTS_PER_ACCOUNT.get(id) ?? 0,
+    };
+  });
+
+  const edges = inWindow.filter((e) => hops.has(e.source) && hops.has(e.target));
+
+  return HttpResponse.json({
+    focus_account_id: focusAccountId,
+    depth,
+    window_days: windowDays,
+    nodes,
+    edges,
+    truncated,
+  });
 }
 
 /** token -> session. Opaque strings; nothing here is a real JWT. */
@@ -608,7 +770,9 @@ export const handlers = [
    * ---------------------------------------------------------------- */
 
   http.get('*/v1/feedback/export', ({ request }) => {
-    const guard = requireScope(request, 'users:manage');
+    // feedback:export, not users:manage — verified against the live API, where
+    // a SUPERVISOR holds it and an ADMIN does not.
+    const guard = requireScope(request, 'feedback:export');
     if (guard.error) return guard.error;
 
     // One JSON object per line: model input, model output, analyst label.
@@ -634,5 +798,333 @@ export const handlers = [
       },
       { status: 201 },
     );
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * Cases — the investigation layer.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/cases', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status');
+    const severity = url.searchParams.get('severity');
+
+    let visible = cases.filter((entry) => visibleTo(session, entry.team));
+    if (status) visible = visible.filter((entry) => entry.status === status);
+    if (severity) visible = visible.filter((entry) => entry.severity === severity);
+    visible = [...visible].sort((a, b) => Date.parse(b.opened_at) - Date.parse(a.opened_at));
+
+    const page = paginate(visible, url);
+    return HttpResponse.json({
+      ...page,
+      items: page.items.map(({ alerts: _a, feedback: _f, ...row }) => row),
+    });
+  }),
+
+  http.get('*/v1/cases/:caseId', ({ request, params }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const found = cases.find((entry) => entry.id === params['caseId']);
+    if (!found || !visibleTo(session, found.team)) {
+      return problem(404, 'Not found', 'No case with that identifier is visible to you.');
+    }
+    return HttpResponse.json(found);
+  }),
+
+  http.patch('*/v1/cases/:caseId', async ({ request, params }) => {
+    const guard = requireScope(request, 'alerts:update');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const found = cases.find((entry) => entry.id === params['caseId']);
+    if (!found || !visibleTo(session, found.team)) {
+      return problem(404, 'Not found', 'No case with that identifier is visible to you.');
+    }
+
+    const body = (await request.json()) as {
+      status?: string;
+      title?: string;
+      assigned_to?: string;
+      note?: string;
+      feedback?: Record<string, unknown>;
+    };
+
+    if (body.status !== undefined) {
+      if (!isKnownStatus(found.status) || !isKnownStatus(body.status)) {
+        return problem(422, 'Invalid input', 'Unknown status.');
+      }
+      const allowed = TRANSITIONS[found.status];
+      if (!allowed.includes(body.status)) {
+        // The server sends the legal moves back; the UI renders them.
+        return problem(409, 'Conflict', `Cannot move from ${found.status} to ${body.status}.`, {
+          allowed_transitions: allowed,
+        });
+      }
+
+      const terminal = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'CLOSED'];
+      if (terminal.includes(body.status) && !session.scopes.includes('alerts:close')) {
+        return problem(403, 'Insufficient scope', 'Concluding a case requires alerts:close.', {
+          required_scopes: ['alerts:close'],
+        });
+      }
+
+      // A verdict without a label is refused. The label IS the verdict; a
+      // status change on its own produces a closed case and no training data.
+      const verdict = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE'];
+      if (verdict.includes(body.status) && !body.feedback) {
+        return problem(409, 'Conflict', 'Concluding a case requires a feedback block.');
+      }
+    }
+
+    if (body.feedback) {
+      const required = ['final_label', 'confidence', 'model_agreement'];
+      const missing = required.filter((key) => !body.feedback?.[key]);
+      if (missing.length) {
+        return problem(422, 'Invalid input', 'One or more fields are invalid.', {
+          errors: missing.map((field) => ({ field, message: 'This field is required.' })),
+        });
+      }
+    }
+
+    const anchor = found.alerts[0];
+    if (body.status) found.status = body.status;
+    if (body.title) found.title = body.title;
+    if (body.assigned_to !== undefined) found.assigned_to = body.assigned_to || null;
+
+    if (body.feedback) {
+      found.closed_at = new Date().toISOString();
+      found.feedback = {
+        id: mockUuid(),
+        case_id: found.id,
+        anchor_alert_id: anchor?.id ?? null,
+        score_id: anchor?.score_id ?? null,
+        transaction_id: anchor?.transaction_id ?? null,
+        alert_count: found.alerts.length,
+        ...body.feedback,
+        decision_drivers: body.feedback['decision_drivers'] ?? [],
+        missing_signals: body.feedback['missing_signals'] ?? [],
+        notes: body.feedback['notes'] ?? null,
+        reviewer_user_id: session.subject,
+        alert_opened_at: found.opened_at,
+        decided_at: new Date().toISOString(),
+        model_version: 'fixture-v1',
+        risk_engine_version: 'engine-v1.2.0',
+        original_risk_score: 91,
+        original_model_score: 96,
+        original_rule_score: 100,
+        original_anomaly_score: 88,
+        original_network_score: 40,
+        original_triggered_rules: [
+          {
+            rule: 'ORIGIN_ACCOUNT_DRAIN',
+            severity: 'HIGH',
+            description: 'The transfer left the sending account with a balance of zero.',
+          },
+        ],
+      };
+    }
+
+    recordAudit(session.subject, 'case.patch', 'fraud_case', found.id, {
+      ...(body.status ? { status: body.status } : {}),
+      alert_count: found.alerts.length,
+    });
+
+    return HttpResponse.json(found);
+  }),
+
+  http.post('*/v1/cases/:caseId/alerts', async ({ request, params }) => {
+    const guard = requireScope(request, 'alerts:update');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const found = cases.find((entry) => entry.id === params['caseId']);
+    if (!found || !visibleTo(session, found.team)) {
+      return problem(404, 'Not found', 'No case with that identifier is visible to you.');
+    }
+
+    const body = (await request.json()) as { alert_id?: string };
+    const alert = alerts.find((entry) => entry.id === body.alert_id);
+    if (!alert) {
+      return problem(404, 'Not found', 'No alert with that identifier is visible to you.');
+    }
+    if (found.alerts.some((entry) => entry.id === alert.id)) {
+      return problem(409, 'Conflict', 'That alert already belongs to this investigation.');
+    }
+
+    found.alerts.push({
+      id: alert.id,
+      transaction_id: alert.transaction_id,
+      score_id: alert.score_id ?? null,
+      status: String(alert.status),
+      severity: String(alert.severity),
+      opened_at: alert.opened_at,
+    });
+    found.alert_count = found.alerts.length;
+    recordAudit(session.subject, 'case.alert.attach', 'fraud_case', found.id, {
+      alert_id: alert.id,
+    });
+
+    return HttpResponse.json(found);
+  }),
+
+  http.delete('*/v1/cases/:caseId/alerts/:alertId', ({ request, params }) => {
+    const guard = requireScope(request, 'alerts:update');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const found = cases.find((entry) => entry.id === params['caseId']);
+    if (!found || !visibleTo(session, found.team)) {
+      return problem(404, 'Not found', 'No case with that identifier is visible to you.');
+    }
+
+    found.alerts = found.alerts.filter((entry) => entry.id !== params['alertId']);
+    found.alert_count = found.alerts.length;
+    recordAudit(session.subject, 'case.alert.detach', 'fraud_case', found.id, {
+      alert_id: String(params['alertId']),
+    });
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * Entities.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/entities', ({ request }) => {
+    const guard = requireScope(request, 'entities:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const url = new URL(request.url);
+    const partyType = url.searchParams.get('party_type');
+    const country = url.searchParams.get('country_code');
+    const minTier = Number(url.searchParams.get('min_risk_tier') ?? '0');
+    const q = url.searchParams.get('q')?.toLowerCase();
+
+    // An entity is visible only once your team has transacted with it. For
+    // team-beta that is nothing — correct, and the screen says why.
+    let visible = ENTITY_FIXTURES.filter((entity) => visibleTo(session, entity.team));
+    if (partyType) visible = visible.filter((e) => e.party_type === partyType);
+    if (country) visible = visible.filter((e) => e.country_code === country);
+    if (minTier > 0) visible = visible.filter((e) => e.risk_tier >= minTier);
+    if (q) visible = visible.filter((e) => e.display_name.toLowerCase().includes(q));
+
+    const page = paginate(visible, url);
+    return HttpResponse.json({
+      ...page,
+      items: page.items.map(({ team: _t, date_of_birth: _d, ...row }) => row),
+    });
+  }),
+
+  http.get('*/v1/entities/:partyId', ({ request, params }) => {
+    const guard = requireScope(request, 'entities:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const entity = ENTITY_FIXTURES.find((e) => e.id === params['partyId']);
+    if (!entity || !visibleTo(session, entity.team)) {
+      return problem(404, 'Not found', 'No party with that identifier is visible to you.');
+    }
+
+    const { team: _team, ...row } = entity;
+    return HttpResponse.json({
+      ...row,
+      accounts: ACCOUNT_FIXTURES.filter((a) => a.party_id === entity.id).map(
+        ({ party_id: _p, ...account }) => account,
+      ),
+    });
+  }),
+
+  http.get('*/v1/entities/:partyId/transactions', ({ request, params }) => {
+    const guard = requireScope(request, 'entities:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+
+    const entity = ENTITY_FIXTURES.find((e) => e.id === params['partyId']);
+    if (!entity || !visibleTo(session, entity.team)) {
+      return problem(404, 'Not found', 'No party with that identifier is visible to you.');
+    }
+
+    const url = new URL(request.url);
+    const wanted = url.searchParams.get('direction');
+    const owned = new Set(
+      ACCOUNT_FIXTURES.filter((a) => a.party_id === entity.id).map((a) => a.id),
+    );
+
+    /*
+     * Direction is computed RELATIVE TO THIS PARTY, which is the whole point:
+     * the same edge is OUT here and IN on the counterparty's page.
+     */
+    const rows = EDGE_FIXTURES.filter((e) => owned.has(e.source) || owned.has(e.target)).map(
+      (edge, index) => {
+        const out = owned.has(edge.source);
+        const inbound = owned.has(edge.target);
+        return {
+          id: mockUuidFor(`${edge.source}:${edge.target}:${index}`),
+          external_ref: `TXN-${String(index).padStart(6, '0')}`,
+          direction: out && inbound ? 'INTERNAL' : out ? 'OUT' : 'IN',
+          amount: edge.total_amount,
+          currency: edge.currency,
+          booked_at: edge.last_booked_at,
+          transaction_type: 'TRANSFER',
+          scoring_status: 'COMPLETE',
+          counterparty_account_id: out ? edge.target : edge.source,
+          src_account_id: edge.source,
+          dst_account_id: edge.target,
+        };
+      },
+    );
+
+    const filtered = wanted ? rows.filter((r) => r.direction === wanted) : rows;
+    return HttpResponse.json(paginate(filtered, url));
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * Network graph.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/network/accounts/:accountId', ({ request, params }) =>
+    graphResponse(request, String(params['accountId'])),
+  ),
+
+  http.get('*/v1/network/entities/:partyId', ({ request, params }) => {
+    const first = ACCOUNT_FIXTURES.find((a) => a.party_id === params['partyId']);
+    if (!first) {
+      return problem(404, 'Not found', 'No party with that identifier is visible to you.');
+    }
+    return graphResponse(request, first.id);
+  }),
+
+  /* ---------------------------------------------------------------- *
+   * Audit trail. Append-only: there is no write route, by design.
+   * ---------------------------------------------------------------- */
+
+  http.get('*/v1/audit-logs', ({ request }) => {
+    const guard = requireScope(request, 'audit:read');
+    if (guard.error) return guard.error;
+
+    const url = new URL(request.url);
+    const entity = url.searchParams.get('entity');
+    const entityId = url.searchParams.get('entity_id');
+    const action = url.searchParams.get('action');
+    const actor = url.searchParams.get('actor');
+    const from = url.searchParams.get('created_from');
+    const to = url.searchParams.get('created_to');
+
+    let rows = [...auditLog];
+    if (entity) rows = rows.filter((r) => r.entity === entity);
+    if (entityId) rows = rows.filter((r) => r.entity_id === entityId);
+    if (action) rows = rows.filter((r) => r.action.includes(action));
+    if (actor) rows = rows.filter((r) => r.actor === actor);
+    if (from) rows = rows.filter((r) => Date.parse(r.created_at) >= Date.parse(from));
+    if (to) rows = rows.filter((r) => Date.parse(r.created_at) <= Date.parse(to));
+
+    return HttpResponse.json(paginate(rows, url));
   }),
 ];
