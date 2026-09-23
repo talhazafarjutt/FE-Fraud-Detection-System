@@ -337,7 +337,8 @@ export const handlers = [
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const severity = url.searchParams.get('severity');
-    const minProbability = Number(url.searchParams.get('min_probability') ?? '0');
+    // 0-100, matching the real API's min_risk_score.
+    const minRiskScore = Number(url.searchParams.get('min_risk_score') ?? '0');
     const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? '50')));
     const cursor = url.searchParams.get('cursor');
 
@@ -347,8 +348,10 @@ export const handlers = [
     );
     if (status) visible = visible.filter((alert) => alert.status === status);
     if (severity) visible = visible.filter((alert) => alert.severity === severity);
-    if (minProbability > 0) {
-      visible = visible.filter((alert) => (alert.fraud_probability ?? 0) >= minProbability);
+    if (minRiskScore > 0) {
+      visible = visible.filter(
+        (alert) => (alert.risk_score ?? (alert.fraud_probability ?? 0) * 100) >= minRiskScore,
+      );
     }
 
     visible = [...visible].sort((a, b) => Date.parse(b.opened_at) - Date.parse(a.opened_at));
@@ -727,10 +730,13 @@ export const handlers = [
     const scoringStatus = p.get('scoring_status');
     if (scoringStatus) rows = rows.filter((r) => r.scoring_status === scoringStatus);
 
-    const minP = p.get('min_probability');
-    if (minP) rows = rows.filter((r) => r.fraud_probability >= Number(minP));
-    const maxP = p.get('max_probability');
-    if (maxP) rows = rows.filter((r) => r.fraud_probability <= Number(maxP));
+    // 0-100 on both ends, matching the real API's min/max_risk_score.
+    const rowScore = (r: { risk_score?: number | null; fraud_probability?: number | null }) =>
+      r.risk_score ?? (r.fraud_probability ?? 0) * 100;
+    const minScore = p.get('min_risk_score');
+    if (minScore) rows = rows.filter((r) => rowScore(r) >= Number(minScore));
+    const maxScore = p.get('max_risk_score');
+    if (maxScore) rows = rows.filter((r) => rowScore(r) <= Number(maxScore));
 
     const from = p.get('from');
     if (from) rows = rows.filter((r) => Date.parse(r.booked_at) >= Date.parse(from));

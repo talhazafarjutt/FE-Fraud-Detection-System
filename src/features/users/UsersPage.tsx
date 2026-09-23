@@ -71,14 +71,14 @@ export default function UsersPage() {
       <header className="border-b border-rule pb-6">
         <Eyebrow className="!mb-2">01 — Accounts</Eyebrow>
         <h1 className="mb-4">User administration</h1>
-        <p className="max-w-2xl text-ink-2">
-          {/*
-            ADMIN holds users:manage and nothing else — administering accounts
-            does not imply reading case files, so this account sees no alerts at
-            all and the alert navigation is absent rather than disabled.
-          */}
-          This account administers people, not cases. It holds no alert scopes, so the alert queue
-          is not part of its navigation.
+        {/*
+          ADMIN holds users:manage and nothing else — administering accounts
+          does not imply reading case files, so this account sees no alerts at
+          all and the alert navigation is absent rather than disabled. Kept to
+          one line on screen: an operator opens this page to act, not to read.
+        */}
+        <p className="max-w-2xl text-[14px] text-ink-2 md:text-[16px]">
+          People, not cases. This account holds no alert scopes.
         </p>
       </header>
 
@@ -187,9 +187,8 @@ export default function UsersPage() {
       <section className="space-y-6 border-t border-rule pt-10">
         <div>
           <Eyebrow className="!mb-2">02 — Create an account</Eyebrow>
-          <p className="max-w-2xl text-ink-2">
-            Roles are granted by name and expand to scopes on the server. An unknown role name is
-            rejected.
+          <p className="max-w-2xl text-[14px] text-ink-2 md:text-[16px]">
+            Roles expand to scopes on the server. An unknown name is rejected.
           </p>
         </div>
 

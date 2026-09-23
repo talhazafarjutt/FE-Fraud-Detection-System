@@ -184,7 +184,7 @@ export default function DashboardPage() {
       <PanelSection
         index="03"
         title="My queue"
-        hint="The ten highest-probability open cases visible to you."
+        hint="The ten highest-risk open cases visible to you."
         actions={
           <Link to="/alerts" className="btn btn--ghost">
             Full queue

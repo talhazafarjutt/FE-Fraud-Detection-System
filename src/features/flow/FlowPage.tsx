@@ -7,6 +7,7 @@ import { FlowPipeline } from './FlowPipeline';
 import { useFlowCounts } from './useFlowCounts';
 import { capabilitiesFor, restrictionsFor, roleSummary } from './stages';
 import { markIntroSeen } from './introState';
+import { useIsDesktop } from '@/lib/useIsDesktop';
 
 /**
  * "What am I supposed to do here?"
@@ -19,6 +20,10 @@ import { markIntroSeen } from './introState';
 export default function FlowPage() {
   const { scopes, session, hasScope } = useAuth();
   const { counts } = useFlowCounts();
+  // Explainers start collapsed on a phone: the operational content is the
+  // pipeline and the two scope lists, and a page of prose above them means
+  // scrolling past the explanation every single visit.
+  const isDesktop = useIsDesktop();
 
   // Reaching this screen is what counts as having seen it, so the landing route
   // stops redirecting here and sends the user to their own first screen instead.
@@ -35,7 +40,7 @@ export default function FlowPage() {
       <SectionHeading
         index="00"
         title="Your workflow"
-        hint="How money becomes a case, and which part of that is yours. Everything below is derived from the scopes on your token — the same ones the API enforces."
+        hint="How money becomes a case, and which part of it is yours. Derived from your token's scopes."
       />
 
       <Panel className="p-6">
@@ -60,18 +65,16 @@ export default function FlowPage() {
 
         {!crossTeam && session?.team ? (
           <p className="mt-4 max-w-2xl text-[13px] text-ink-3">
-            You see <strong>{session.team}</strong> only. If a list here is empty, that usually
-            means your team has no traffic matching it yet — the server filtered it, the screen did
-            not fail.
+            You see <strong>{session.team}</strong> only. An empty list means no matching traffic,
+            not a failure.
           </p>
         ) : null}
       </Panel>
 
       <section className="space-y-4">
         <Eyebrow>The pipeline</Eyebrow>
-        <p className="max-w-3xl text-ink-2">
-          Lit stages are the ones you act on. Dimmed stages still happen — they just belong to
-          someone else, and each one says who.
+        <p className="max-w-3xl text-[14px] text-ink-2 md:text-[16px]">
+          Lit stages are yours. Dimmed ones belong to someone else.
         </p>
         <FlowPipeline scopes={scopes} counts={counts} />
       </section>
@@ -119,27 +122,31 @@ export default function FlowPage() {
             </ul>
           )}
           <p className="mt-5 max-w-xl text-[13px] text-ink-3">
-            These are not UI preferences. The server checks the same scopes and answers 403 — or,
-            for something belonging to another team, 404.
+            Not UI preferences — the server answers 403, or 404 across teams.
           </p>
         </section>
       </div>
 
       <Panel className="p-6">
-        <Eyebrow>How a case actually gets solved</Eyebrow>
-        <ol className="grid gap-x-8 gap-y-4 md:grid-cols-2">
-          {WALKTHROUGH.map((step, index) => (
-            <li key={step.title} className="flex gap-4">
-              <span className="mono-label shrink-0 text-ink-3">
-                {String(index + 1).padStart(2, '0')}
-              </span>
-              <div>
-                <p className="font-medium text-ink">{step.title}</p>
-                <p className="text-[13px] text-ink-2">{step.body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <details open={isDesktop}>
+          <summary className="cursor-pointer list-none md:cursor-default">
+            <Eyebrow className="!mb-0 inline">How a case actually gets solved</Eyebrow>
+            <span className="ml-2 font-mono text-[11px] text-ink-3 md:hidden">tap to expand</span>
+          </summary>
+          <ol className="mt-5 grid gap-x-8 gap-y-4 md:grid-cols-2">
+            {WALKTHROUGH.map((step, index) => (
+              <li key={step.title} className="flex gap-4">
+                <span className="mono-label shrink-0 text-ink-3">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <div>
+                  <p className="font-medium text-ink">{step.title}</p>
+                  <p className="text-[13px] text-ink-2">{step.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </details>
       </Panel>
 
       <p className="text-ink-3">
@@ -182,7 +189,7 @@ const WALKTHROUGH = [
     body: 'Only a holder of alerts:close can conclude. Whoever investigated does not sign off.',
   },
   {
-    title: 'It becomes training data',
-    body: 'One label for the scheme, not nine — nine correlated labels for one event would skew the next model.',
+    title: 'It becomes validated labelled data',
+    body: 'One label for the scheme, not nine. Nothing retrains automatically — the label is stored for review and controlled export.',
   },
 ] as const;

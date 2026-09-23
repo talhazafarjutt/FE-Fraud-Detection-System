@@ -3,14 +3,9 @@ import type { Alert } from '@/api/schemas/alerts';
 import { cx } from '@/components/primitives';
 import { RISK_THRESHOLDS, riskDisplay } from '@/lib/risk';
 
-/**
- * Stops and the slider are on the 0–100 risk scale, matching `risk_score`.
- * `RISK_THRESHOLDS` is still expressed 0–1, so it is scaled once here rather
- * than comparing two different units — which silently made every case look
- * above threshold.
- */
+/** Stops, slider and threshold are all 0–100, the same scale as `risk_score`. */
 const STOPS = [50, 60, 70, 80, 90] as const;
-const LIVE_THRESHOLD = RISK_THRESHOLDS.HIGH * 100;
+const LIVE_THRESHOLD = RISK_THRESHOLDS.HIGH;
 
 /**
  * §15.4 threshold explorer.
@@ -37,22 +32,22 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
         // Skip alerts with no score at all: they cannot be replayed against a
         // threshold, and counting them as zero would invent a decision.
         .map((a) => ({
-          probability: riskDisplay(a.risk_score, a.fraud_probability)?.value ?? null,
+          score: riskDisplay(a.risk_score, a.fraud_probability)?.value ?? null,
           confirmed: a.status === 'CONFIRMED_FRAUD',
         }))
-        .filter((c): c is { probability: number; confirmed: boolean } => c.probability !== null),
+        .filter((c): c is { score: number; confirmed: boolean } => c.score !== null),
     [alerts],
   );
 
   const at = useMemo(() => {
     const evaluate = (cut: number) => {
-      const raised = closed.filter((c) => c.probability >= cut);
+      const raised = closed.filter((c) => c.score >= cut);
       const confirmed = raised.filter((c) => c.confirmed).length;
       const falsePositives = raised.length - confirmed;
       // Fraud below the cut would not have raised a case at all: caught by a
       // human only if something else surfaced it. We can count it because these
       // cases carry a real verdict.
-      const missedFraud = closed.filter((c) => !(c.probability >= cut) && c.confirmed).length;
+      const missedFraud = closed.filter((c) => !(c.score >= cut) && c.confirmed).length;
       return {
         cut,
         raised: raised.length,

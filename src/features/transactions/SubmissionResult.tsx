@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import type { TransactionCreated } from '@/api/schemas/transactions';
 import { BandChip, SeverityChip, StatusChip } from '@/components/Chips';
 import { Button, Eyebrow } from '@/components/primitives';
-import { formatProbability } from '@/lib/risk';
+import { formatRiskScore } from '@/lib/risk';
 import { shortId, titleCase } from '@/lib/format';
 import { useScorePoller } from './useScorePoller';
 
@@ -70,12 +70,12 @@ export function SubmissionResult({
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-4">
               <span className="font-display text-[38px] font-bold leading-none tracking-tighter text-ink">
-                {formatProbability(risk.fraud_probability)}
+                {formatRiskScore(risk.risk_score ?? (risk.fraud_probability ?? 0) * 100)}
                 <span className="ml-1 font-mono text-[12px] font-normal tracking-tag text-ink-3">
-                  %
+                  risk
                 </span>
               </span>
-              <BandChip probability={risk.fraud_probability} />
+              <BandChip score={risk.risk_score ?? (risk.fraud_probability ?? 0) * 100} />
               <span className="tag">{risk.model_name}</span>
               <span className="tag">{risk.model_version}</span>
               {risk.latency_ms !== null ? (

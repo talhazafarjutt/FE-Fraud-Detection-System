@@ -21,7 +21,7 @@ export async function listAlerts(
     route('/v1/fraud-alerts', {
       status: filters.status,
       severity: filters.severity,
-      min_probability: filters.min_probability,
+      min_risk_score: filters.min_risk_score,
       limit: filters.limit,
       cursor,
     }),

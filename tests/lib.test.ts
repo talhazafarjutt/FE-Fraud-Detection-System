@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatIban, isValidIban, normaliseIban } from '@/lib/iban';
 import { formatAmount, formatMoney, isValidAmount, isValidBalance, normaliseAmount } from '@/lib/money';
-import { bandFor } from '@/lib/risk';
+import { bandFor, riskDisplay } from '@/lib/risk';
 
 describe('iban (ISO 13616 mod-97)', () => {
   it('accepts the AE IBANs used by the demo samples', () => {
@@ -60,13 +60,28 @@ describe('money (string decimals, never floats)', () => {
 });
 
 describe('risk bands', () => {
+  // Bands are on 0-100 now, the same scale as `risk_score` and everything the
+  // user reads. They used to be 0-1, so the dashboard printed "0.4 - 0.7" next
+  // to an alert queue showing 83.
   it('uses the server cut points exactly', () => {
-    expect(bandFor(0.399)).toBe('LOW');
-    expect(bandFor(0.4)).toBe('MEDIUM');
-    expect(bandFor(0.699)).toBe('MEDIUM');
-    expect(bandFor(0.7)).toBe('HIGH');
-    expect(bandFor(0.899)).toBe('HIGH');
-    expect(bandFor(0.9)).toBe('CRITICAL');
-    expect(bandFor(1)).toBe('CRITICAL');
+    expect(bandFor(39.9)).toBe('LOW');
+    expect(bandFor(40)).toBe('MEDIUM');
+    expect(bandFor(69.9)).toBe('MEDIUM');
+    expect(bandFor(70)).toBe('HIGH');
+    expect(bandFor(89.9)).toBe('HIGH');
+    expect(bandFor(90)).toBe('CRITICAL');
+    expect(bandFor(100)).toBe('CRITICAL');
+  });
+
+  it('is not fooled by a 0-1 probability passed in by mistake', () => {
+    // 0.7 is "seventy percent" to a human but 0.7 on this scale is LOW, which
+    // is the correct answer: callers must convert before they get here.
+    expect(bandFor(0.7)).toBe('LOW');
+  });
+
+  it('riskDisplay normalises either contract onto 0-100', () => {
+    expect(riskDisplay(83.6, null)).toMatchObject({ value: 84, band: 'HIGH', derived: false });
+    expect(riskDisplay(null, 0.83)).toMatchObject({ value: 83, band: 'HIGH', derived: true });
+    expect(riskDisplay(null, null)).toBeNull();
   });
 });

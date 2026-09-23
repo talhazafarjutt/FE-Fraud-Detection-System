@@ -17,7 +17,7 @@ import {
   SignalBars,
   TriggeredRules,
 } from './EvidencePanels';
-import { ProbabilityDial } from './ProbabilityDial';
+import { RiskDial } from './RiskDial';
 import { alertKeys } from './queries';
 
 // Recharts is pulled in only when a case is opened.
@@ -108,7 +108,7 @@ export default function AlertDetailPage() {
 
         <div className="grid gap-px border border-rule bg-rule lg:grid-cols-[240px_minmax(0,1fr)]">
           <div className="flex items-center justify-center bg-surface p-8">
-            <ProbabilityDial risk={riskDisplay(alert.risk_score, alert.fraud_probability)} />
+            <RiskDial risk={riskDisplay(alert.risk_score, alert.fraud_probability)} />
           </div>
 
           <div className="grid gap-px bg-rule sm:grid-cols-2">

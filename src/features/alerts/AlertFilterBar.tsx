@@ -12,26 +12,21 @@ type Filters = ReturnType<typeof useAlertFilters>;
 export function AlertFilterBar({ filters, setFilter, clearAll, activeCount }: Filters) {
   // The slider updates continuously but the query is debounced at 300 ms —
   // dragging it must not fire a request per pixel.
-  const [sliderValue, setSliderValue] = useState(
-    filters.min_probability !== undefined ? Math.round(filters.min_probability * 100) : 0,
-  );
+  // Slider, URL and API all speak 0-100 now, so there is no conversion left to
+  // get wrong. It used to hold a 0-1 probability and render it as a percentage.
+  const [sliderValue, setSliderValue] = useState(filters.min_risk_score ?? 0);
 
   useEffect(() => {
-    setSliderValue(
-      filters.min_probability !== undefined ? Math.round(filters.min_probability * 100) : 0,
-    );
-  }, [filters.min_probability]);
+    setSliderValue(filters.min_risk_score ?? 0);
+  }, [filters.min_risk_score]);
 
   useEffect(() => {
-    const current = filters.min_probability !== undefined ? filters.min_probability : 0;
-    const next = sliderValue / 100;
-    if (Math.abs(current - next) < 0.0001) return;
-
+    if ((filters.min_risk_score ?? 0) === sliderValue) return;
     const timer = setTimeout(() => {
-      setFilter('min_probability', sliderValue === 0 ? null : String(next));
+      setFilter('min_risk_score', sliderValue === 0 ? null : String(sliderValue));
     }, 300);
     return () => clearTimeout(timer);
-  }, [sliderValue, filters.min_probability, setFilter]);
+  }, [sliderValue, filters.min_risk_score, setFilter]);
 
   return (
     <div className="border border-rule bg-surface">
@@ -70,8 +65,8 @@ export function AlertFilterBar({ filters, setFilter, clearAll, activeCount }: Fi
 
         <label className="bg-surface p-4">
           <span className="mono-label mb-2 flex items-center justify-between text-ink-3">
-            <span>Minimum probability</span>
-            <span className="num tabular-nums text-ink">{sliderValue}%</span>
+            <span>Minimum risk score</span>
+            <span className="num tabular-nums text-ink">{sliderValue}</span>
           </span>
           <input
             type="range"
@@ -81,7 +76,7 @@ export function AlertFilterBar({ filters, setFilter, clearAll, activeCount }: Fi
             value={sliderValue}
             onChange={(event) => setSliderValue(Number(event.target.value))}
             className="mt-3 w-full accent-[color:var(--ultra)]"
-            aria-label="Minimum fraud probability"
+            aria-label="Minimum risk score, 0 to 100"
           />
         </label>
 

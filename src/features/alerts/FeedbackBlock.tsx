@@ -8,7 +8,7 @@ import {
   computeModelAgreement,
 } from '@/api/schemas/feedback';
 import { cx } from '@/components/primitives';
-import { RISK_THRESHOLDS, formatProbability } from '@/lib/risk';
+import { RISK_THRESHOLDS, formatRiskScore } from '@/lib/risk';
 
 const LABEL_COPY: Record<(typeof TRUE_LABELS)[number], string> = {
   FRAUD: 'Fraud',
@@ -146,7 +146,7 @@ export function FeedbackBlock({
               : 'Model disagreed'}
         </span>
         <span className="num font-mono text-[11px] tabular-nums text-ink-3">
-          {formatProbability(fraudProbability)}% vs {RISK_THRESHOLDS.HIGH.toFixed(2)}
+          risk {formatRiskScore(fraudProbability * 100)} vs alert at {RISK_THRESHOLDS.HIGH}
         </span>
       </div>
 

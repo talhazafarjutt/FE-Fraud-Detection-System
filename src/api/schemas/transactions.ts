@@ -156,7 +156,12 @@ export type TransactionFormParsed = z.output<typeof transactionFormSchema>;
  * ------------------------------------------------------------------ */
 
 export const riskSchema = z.object({
-  fraud_probability: z.number(),
+  // VERIFIED against /openapi.json: RiskOut returns `risk_score` (0-100) and
+  // carries no `fraud_probability` at all. Requiring the probability here made
+  // every submit response fail validation against the current API; keeping it
+  // optional is what lets the older contract still parse.
+  risk_score: z.number().nullable().default(null),
+  fraud_probability: z.number().nullable().optional(),
   risk_level: z.string(),
   model_name: z.string(),
   model_version: z.string(),
@@ -272,8 +277,9 @@ export type TransactionPage = z.infer<typeof transactionPageSchema> & { skipped:
 
 export interface TransactionFilters {
   risk_level?: string;
-  min_probability?: number;
-  max_probability?: number;
+  /** 0-100, the engine's risk score. Not a probability. */
+  min_risk_score?: number;
+  max_risk_score?: number;
   transaction_type?: string;
   scoring_status?: string;
   /** true = flagged only, false = clean only, undefined = everything. */

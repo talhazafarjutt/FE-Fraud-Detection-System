@@ -71,8 +71,8 @@ export async function listTransactions(
 ): Promise<TransactionPage> {
   const query = {
     risk_level: filters.risk_level,
-    min_probability: filters.min_probability,
-    max_probability: filters.max_probability,
+    min_risk_score: filters.min_risk_score,
+    max_risk_score: filters.max_risk_score,
     transaction_type: filters.transaction_type,
     scoring_status: filters.scoring_status,
     has_alert: filters.has_alert === undefined ? undefined : String(filters.has_alert),

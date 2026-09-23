@@ -1,17 +1,34 @@
 /**
- * Risk bands. Cut points are the server's (MEDIUM >= 0.40, HIGH >= 0.70, alert
- * raised at >= 0.70). CRITICAL >= 0.90 is a presentation band only — the
- * backend's own severity enum is authoritative wherever it is supplied.
+ * Risk bands, expressed on the 0–100 scale the whole product uses.
+ *
+ * These were 0–1 and every screen converted on its own: the dashboard printed
+ * bands as "0.4 – 0.7" while the alert queue next to it showed 83, and the
+ * threshold explorer multiplied by 100 with a comment apologising for it. One
+ * scale, defined once. The server's cut points are MEDIUM >= 40, HIGH >= 70,
+ * and an alert is raised at >= 70; CRITICAL >= 90 is a presentation band only.
  * The UI must never disagree with the backend about where a score sits.
  */
-export const RISK_THRESHOLDS = { MEDIUM: 0.4, HIGH: 0.7, CRITICAL: 0.9 } as const;
+export const RISK_THRESHOLDS = { MEDIUM: 40, HIGH: 70, CRITICAL: 90 } as const;
+
+/**
+ * The same cut points on the legacy 0–1 probability scale.
+ *
+ * Only for comparing against a raw `fraud_probability` that the older contract
+ * still returns — never for anything a user reads.
+ */
+export const RISK_THRESHOLDS_P = {
+  MEDIUM: RISK_THRESHOLDS.MEDIUM / 100,
+  HIGH: RISK_THRESHOLDS.HIGH / 100,
+  CRITICAL: RISK_THRESHOLDS.CRITICAL / 100,
+} as const;
 
 export type RiskBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-export function bandFor(probability: number): RiskBand {
-  if (probability >= RISK_THRESHOLDS.CRITICAL) return 'CRITICAL';
-  if (probability >= RISK_THRESHOLDS.HIGH) return 'HIGH';
-  if (probability >= RISK_THRESHOLDS.MEDIUM) return 'MEDIUM';
+/** Band from a risk score on 0–100. */
+export function bandFor(score: number): RiskBand {
+  if (score >= RISK_THRESHOLDS.CRITICAL) return 'CRITICAL';
+  if (score >= RISK_THRESHOLDS.HIGH) return 'HIGH';
+  if (score >= RISK_THRESHOLDS.MEDIUM) return 'MEDIUM';
   return 'LOW';
 }
 
@@ -33,8 +50,9 @@ export const BAND_HEX: Record<RiskBand, string> = {
   CRITICAL: 'var(--carmine)',
 };
 
-export function formatProbability(probability: number): string {
-  return `${(probability * 100).toFixed(1)}`;
+/** A risk score for display: integer, no unit, never a percent sign. */
+export function formatRiskScore(score: number): string {
+  return String(Math.round(score));
 }
 
 /* ------------------------------------------------------------------ *
@@ -67,20 +85,21 @@ export function riskDisplay(
 ): RiskDisplay | null {
   if (typeof riskScore === 'number') {
     const value = Math.round(riskScore);
-    return { value, source: 'risk_score', band: bandFor(value / 100), derived: false };
+    return { value, source: 'risk_score', band: bandFor(value), derived: false };
   }
   if (typeof fraudProbability === 'number') {
     return {
       value: Math.round(fraudProbability * 100),
       source: 'fraud_probability',
-      band: bandFor(fraudProbability),
+      band: bandFor(fraudProbability * 100),
       derived: true,
     };
   }
   return null;
 }
 
-/** Band from a 0–100 score, for callers that already have one. */
-export function bandForScore(score: number): RiskBand {
-  return bandFor(score / 100);
-}
+/**
+ * Kept as a name callers already use; identical to `bandFor` now that there is
+ * only one scale.
+ */
+export const bandForScore = bandFor;

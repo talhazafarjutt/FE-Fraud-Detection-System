@@ -193,6 +193,7 @@ export type AlertPatch = z.infer<typeof alertPatchSchema>;
 export interface AlertFilters {
   status?: string;
   severity?: string;
-  min_probability?: number;
+  /** 0-100, the engine's risk score. Not a probability. */
+  min_risk_score?: number;
   limit?: number;
 }

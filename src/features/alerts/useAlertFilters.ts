@@ -28,10 +28,10 @@ export function useAlertFilters() {
   const filters = useMemo<AlertFilters>(() => {
     const status = params.get('status');
     const severity = params.get('severity');
-    const minProbability = params.get('min_probability');
+    const minRiskScore = params.get('min_risk_score');
     const limit = params.get('limit');
 
-    const parsedProbability = minProbability === null ? NaN : Number(minProbability);
+    const parsedRiskScore = minRiskScore === null ? NaN : Number(minRiskScore);
     const parsedLimit = limit === null ? NaN : Number(limit);
 
     return {
@@ -41,8 +41,11 @@ export function useAlertFilters() {
       ...(severity && SEVERITY_OPTIONS.includes(severity as (typeof SEVERITY_OPTIONS)[number])
         ? { severity }
         : {}),
-      ...(Number.isFinite(parsedProbability) && parsedProbability > 0 && parsedProbability <= 1
-        ? { min_probability: parsedProbability }
+      // 0-100, the same scale the risk score itself uses. The old filter was
+      // a 0-1 probability rendered as a percentage, so the URL, the slider and
+      // the column header each showed the number on a different scale.
+      ...(Number.isFinite(parsedRiskScore) && parsedRiskScore > 0 && parsedRiskScore <= 100
+        ? { min_risk_score: parsedRiskScore }
         : {}),
       limit:
         Number.isFinite(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 200
@@ -52,7 +55,7 @@ export function useAlertFilters() {
   }, [params]);
 
   const setFilter = useCallback(
-    (key: 'status' | 'severity' | 'min_probability' | 'limit', value: string | null) => {
+    (key: 'status' | 'severity' | 'min_risk_score' | 'limit', value: string | null) => {
       setParams(
         (current) => {
           const next = new URLSearchParams(current);
@@ -73,7 +76,7 @@ export function useAlertFilters() {
   const activeCount =
     (filters.status ? 1 : 0) +
     (filters.severity ? 1 : 0) +
-    (filters.min_probability !== undefined ? 1 : 0);
+    (filters.min_risk_score !== undefined ? 1 : 0);
 
   return { filters, setFilter, clearAll, activeCount };
 }

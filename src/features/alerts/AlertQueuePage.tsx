@@ -161,7 +161,7 @@ export default function AlertQueuePage() {
           ) : (
             <EmptyState
               title="No alerts match these filters"
-              body="Widen the probability threshold or clear the status and severity filters."
+              body="Lower the minimum risk score, or clear the status and severity filters."
             />
           )
         ) : (

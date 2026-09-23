@@ -12,7 +12,7 @@ const ARC_LENGTH = CIRCUMFERENCE * (SWEEP / 360);
  * A thin arc, --rule track, band colour for the value. No gradient, no shadow —
  * depth on this design comes from hairlines, not effects.
  */
-export function ProbabilityDial({ risk }: { risk: RiskDisplay | null }) {
+export function RiskDial({ risk }: { risk: RiskDisplay | null }) {
   if (risk === null) {
     return (
       <div className="flex h-[168px] w-[168px] items-center justify-center border border-rule-soft">
@@ -69,7 +69,7 @@ export function ProbabilityDial({ risk }: { risk: RiskDisplay | null }) {
         {risk.derived ? (
           <span
             className="mt-1 font-mono text-[9px] uppercase tracking-tag text-ink-3"
-            title="The risk engine has not scored this alert; this is derived from the model's fraud_probability."
+            title="The risk engine has not scored this alert; this figure is derived from the legacy model output."
           >
             derived
           </span>

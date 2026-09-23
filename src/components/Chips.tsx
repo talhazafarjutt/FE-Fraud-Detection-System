@@ -42,7 +42,8 @@ export function SeverityChip({ severity }: { severity: AlertSeverity | string })
   );
 }
 
-export function BandChip({ probability }: { probability: number }) {
-  const band: RiskBand = bandFor(probability);
+/** `score` is 0–100, the same scale as everything else the user sees. */
+export function BandChip({ score }: { score: number }) {
+  const band: RiskBand = bandFor(score);
   return <span className={cx(CHIP_BASE, BAND_CLASS[band])}>{band}</span>;
 }

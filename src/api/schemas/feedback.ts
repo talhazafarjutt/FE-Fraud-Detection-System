@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RISK_THRESHOLDS } from '@/lib/risk';
+import { RISK_THRESHOLDS_P } from '@/lib/risk';
 
 /**
  * Analyst feedback — §16.2.
@@ -85,7 +85,8 @@ export function computeModelAgreement(
   fraudProbability: number,
 ): boolean | null {
   if (trueLabel === 'INCONCLUSIVE') return null;
-  const modelSaidFraud = fraudProbability >= RISK_THRESHOLDS.HIGH;
+  // Raw 0-1 probability from the model, so the 0-1 cut point applies here.
+  const modelSaidFraud = fraudProbability >= RISK_THRESHOLDS_P.HIGH;
   return trueLabel === 'FRAUD' ? modelSaidFraud : !modelSaidFraud;
 }
 
