@@ -98,9 +98,11 @@ export const STAGES: readonly Stage[] = [
   {
     id: 'retraining',
     title: 'Retraining',
-    blurb: 'The verdict becomes one training label for the whole scheme, not one per alert.',
-    scope: 'feedback:export',
-    locked: 'Exporting verdicts as training data needs feedback:export.',
+    blurb:
+      'A supervisor reviews each verdict, approves the good examples, and requests a training run. Nothing retrains on its own.',
+    scope: 'training:manage',
+    to: '/training',
+    locked: 'Choosing what the model learns from is a supervisor decision — training:manage.',
   },
   {
     id: 'audit',
@@ -176,6 +178,12 @@ export const CAPABILITIES: readonly Capability[] = [
     does: 'Read the audit trail: who did what, when, from where.',
     cannot: 'You cannot read the audit trail. It records the analysts’ own actions.',
     notableWhenAbsent: false,
+  },
+  {
+    scope: 'training:manage',
+    does: 'Review verdicts, approve the ones fit to train on, and request a training run.',
+    cannot: 'You cannot choose what the model is trained on. That is a supervisor decision.',
+    notableWhenAbsent: true,
   },
   {
     scope: 'feedback:export',

@@ -339,6 +339,7 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
       'audit:read',
       'entities:read',
       'feedback:export',
+      'training:manage',
       'transactions:read',
     ],
     team: 'team-alpha',
@@ -354,7 +355,7 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
 
 export const CLIENT_SCOPES: Record<string, string[]> = {
   'ingest-loader': ['transactions:write'],
-  'ml-service': ['scores:write', 'transactions:read'],
+  'ml-service': ['feedback:export', 'scores:write', 'training:execute', 'transactions:read'],
 };
 
 /* ------------------------------------------------------------------ *

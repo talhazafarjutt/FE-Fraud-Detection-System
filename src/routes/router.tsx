@@ -37,6 +37,10 @@ const EntityDetailPage = lazyRoute('EntityDetailPage', () => import('@/features/
 const NetworkExplorerPage = lazyRoute('NetworkExplorerPage', () => import('@/features/network/NetworkExplorerPage'));
 const AuditLogPage = lazyRoute('AuditLogPage', () => import('@/features/audit/AuditLogPage'));
 
+// Training curation: supervisor-only review of verdicts before any model sees them.
+const TrainingPage = lazyRoute('TrainingPage', () => import('@/features/training/TrainingPage'));
+const TrainingRunPage = lazyRoute('TrainingRunPage', () => import('@/features/training/RunDetailPage'));
+
 const simulatorEnabled = import.meta.env.VITE_ENABLE_SIMULATOR === 'true';
 
 /**
@@ -87,6 +91,13 @@ export const APP_ROUTES: RouteSpec[] = [
   // and the nav item is absent for them entirely.
   { path: 'audit', element: guarded('audit:read', <AuditLogPage />, 'Audit log') },
   { path: 'users', element: guarded('users:manage', <UsersPage />, 'User administration') },
+  // training:manage is SUPERVISOR only. Choosing what the next model learns from
+  // is an oversight decision; analysts do not see this section at all.
+  { path: 'training', element: guarded('training:manage', <TrainingPage />, 'Training data') },
+  {
+    path: 'training/runs/:runId',
+    element: guarded('training:manage', <TrainingRunPage />, 'Training run'),
+  },
   // Tree-shaken out entirely unless the env flag is on at build time.
   ...(SimulatorPage ? [{ path: 'simulator', element: guarded([], <SimulatorPage />, 'Simulator') }] : []),
 ];

@@ -283,7 +283,7 @@ export function ConcludeModal({
   );
 }
 
-function Group({
+export function Group({
   legend,
   hint,
   required,
@@ -306,7 +306,7 @@ function Group({
   );
 }
 
-function Choice({
+export function Choice({
   name,
   selected,
   disabled,
@@ -358,7 +358,7 @@ function Choice({
 }
 
 /** Multi-entry chips: Enter adds, × removes. */
-function ChipInput({
+export function ChipInput({
   values,
   onChange,
   placeholder,

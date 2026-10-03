@@ -15,6 +15,7 @@ import { transitionsFor } from '@/features/alerts/stateMachine';
 import { AuditTable } from '@/features/audit/AuditLogPage';
 import { ConcludeModal } from './ConcludeModal';
 import { VerdictPanel } from './VerdictPanel';
+import { CaseTrainingPanel } from '@/features/training/CaseTrainingPanel';
 
 const VERDICT_LABELS: readonly FinalLabel[] = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'INCONCLUSIVE'];
 
@@ -228,6 +229,11 @@ export default function CaseDetailPage() {
 
       {/* --- Verdict --------------------------------------------------- */}
       {investigation.feedback ? <VerdictPanel feedback={investigation.feedback} /> : null}
+
+      {/* Supervisor only: whether this verdict should ever teach a model. */}
+      {investigation.feedback && hasScope('training:manage') ? (
+        <CaseTrainingPanel feedbackId={investigation.feedback.id} />
+      ) : null}
 
       {/* --- Member alerts --------------------------------------------- */}
       <section className="space-y-4">

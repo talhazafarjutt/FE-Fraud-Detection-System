@@ -1133,4 +1133,22 @@ export const handlers = [
 
     return HttpResponse.json(paginate(rows, url));
   }),
+
+  /*
+   * Training curation. Demo mode has no concluded-verdict history to curate,
+   * so these answer honestly with empty lists rather than inventing training
+   * data -- the screen shows its empty state instead of an error. The scope
+   * checks still mirror the live API: training:manage is supervisor-only.
+   */
+  http.get('*/v1/training/records', ({ request }) => {
+    const guard = requireScope(request, 'training:manage');
+    if (guard.error) return guard.error;
+    return HttpResponse.json({ items: [], next_cursor: null, page_size: 50 });
+  }),
+
+  http.get('*/v1/training/runs', ({ request }) => {
+    const guard = requireScope(request, 'training:manage');
+    if (guard.error) return guard.error;
+    return HttpResponse.json({ items: [], next_cursor: null, page_size: 50 });
+  }),
 ];

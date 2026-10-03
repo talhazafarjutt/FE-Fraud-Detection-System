@@ -555,6 +555,140 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/training/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Training Records
+         * @description Concluded verdicts and their training status, newest decision first.
+         */
+        get: operations["list_training_records_v1_training_records_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/training/records/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Training Record */
+        get: operations["get_training_record_v1_training_records__record_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Training Record
+         * @description Approve, exclude, or correct a record's supporting detail.
+         *
+         *     The label itself is not editable here -- reopen and re-conclude the case.
+         */
+        patch: operations["patch_training_record_v1_training_records__record_id__patch"];
+        trace?: never;
+    };
+    "/v1/training/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Training Runs
+         * @description Newest first. The ML service polls this with `status=QUEUED`.
+         */
+        get: operations["list_training_runs_v1_training_runs_get"];
+        put?: never;
+        /**
+         * Create Training Run
+         * @description Queue a training run on a selection of APPROVED records.
+         *
+         *     The selection is frozen now. Editing or re-concluding any of these records
+         *     later changes the live record, never what this run trains on.
+         */
+        post: operations["create_training_run_v1_training_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/training/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Training Run */
+        get: operations["get_training_run_v1_training_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Report Training Run
+         * @description The ML service reports progress: RUNNING, then COMPLETED or FAILED.
+         *
+         *     Supervisor tokens cannot call this. The person who chose the data is not
+         *     the party that reports what training produced from it.
+         */
+        patch: operations["report_training_run_v1_training_runs__run_id__patch"];
+        trace?: never;
+    };
+    "/v1/training/runs/{run_id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Training Run Records
+         * @description The frozen dataset, exactly as the run was requested.
+         */
+        get: operations["list_training_run_records_v1_training_runs__run_id__records_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/training/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Training Run
+         * @description Withdraw a run the ML service has not started yet.
+         */
+        post: operations["cancel_training_run_v1_training_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1363,6 +1497,33 @@ export interface components {
             /** Page Size */
             page_size: number;
         };
+        /** Page[TrainingRecordOut] */
+        Page_TrainingRecordOut_: {
+            /** Items */
+            items: components["schemas"]["TrainingRecordOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Page Size */
+            page_size: number;
+        };
+        /** Page[TrainingRunOut] */
+        Page_TrainingRunOut_: {
+            /** Items */
+            items: components["schemas"]["TrainingRunOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Page Size */
+            page_size: number;
+        };
+        /** Page[TrainingRunRecordOut] */
+        Page_TrainingRunRecordOut_: {
+            /** Items */
+            items: components["schemas"]["TrainingRunRecordOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Page Size */
+            page_size: number;
+        };
         /** Page[TransactionListItem] */
         Page_TransactionListItem_: {
             /** Items */
@@ -1565,6 +1726,218 @@ export interface components {
             /** Scopes */
             scopes: string[];
         };
+        /**
+         * TrainingRecordOut
+         * @description A concluded verdict, viewed as a candidate for training.
+         */
+        TrainingRecordOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Anchor Alert Id */
+            anchor_alert_id?: string | null;
+            /** Score Id */
+            score_id?: string | null;
+            /** Transaction Id */
+            transaction_id?: string | null;
+            /**
+             * Alert Count
+             * @default 1
+             */
+            alert_count: number;
+            final_label: components["schemas"]["FinalLabel"];
+            confidence: components["schemas"]["LabelConfidence"];
+            model_agreement: components["schemas"]["ModelAgreement"];
+            /** Fraud Typology */
+            fraud_typology?: string | null;
+            /** Decision Drivers */
+            decision_drivers?: string[];
+            /** Missing Signals */
+            missing_signals?: string[];
+            /** Notes */
+            notes?: string | null;
+            /** Reviewer User Id */
+            reviewer_user_id?: string | null;
+            /** Alert Opened At */
+            alert_opened_at?: string | null;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** Model Version */
+            model_version?: string | null;
+            /** Risk Engine Version */
+            risk_engine_version?: string | null;
+            /** Original Risk Score */
+            original_risk_score?: number | null;
+            /** Original Model Score */
+            original_model_score?: number | null;
+            /** Original Rule Score */
+            original_rule_score?: number | null;
+            /** Original Anomaly Score */
+            original_anomaly_score?: number | null;
+            /** Original Network Score */
+            original_network_score?: number | null;
+            /** Original Triggered Rules */
+            original_triggered_rules?: unknown[];
+            /** Case Title */
+            case_title?: string | null;
+            /** Case Status */
+            case_status?: string | null;
+            /** External Ref */
+            external_ref?: string | null;
+            /** Team */
+            team: string;
+            training_status: components["schemas"]["TrainingStatus"];
+            /** Training Note */
+            training_note?: string | null;
+            /** Training Reviewed By */
+            training_reviewed_by?: string | null;
+            /** Training Reviewed At */
+            training_reviewed_at?: string | null;
+            /**
+             * Run Count
+             * @default 0
+             */
+            run_count: number;
+        };
+        /**
+         * TrainingRecordPatch
+         * @description What a supervisor may change on a training record.
+         */
+        TrainingRecordPatch: {
+            training_status?: components["schemas"]["TrainingStatus"] | null;
+            /** Training Note */
+            training_note?: string | null;
+            confidence?: components["schemas"]["LabelConfidence"] | null;
+            /** Fraud Typology */
+            fraud_typology?: string | null;
+            /** Decision Drivers */
+            decision_drivers?: string[] | null;
+            /** Missing Signals */
+            missing_signals?: string[] | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** TrainingRunCreate */
+        TrainingRunCreate: {
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Record Ids */
+            record_ids: string[];
+        };
+        /** TrainingRunOut */
+        TrainingRunOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            status: components["schemas"]["TrainingRunStatus"];
+            /** Requested By */
+            requested_by?: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Record Count */
+            record_count: number;
+            /** Label Counts */
+            label_counts?: {
+                [key: string]: number;
+            };
+            /** Base Model Version */
+            base_model_version?: string | null;
+            /** Executor */
+            executor?: string | null;
+            /** Result Model Version */
+            result_model_version?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * TrainingRunPatch
+         * @description The ML service reporting progress on a run it is executing.
+         */
+        TrainingRunPatch: {
+            status: components["schemas"]["TrainingRunStatus"];
+            /** Result Model Version */
+            result_model_version?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * TrainingRunRecordOut
+         * @description One verdict exactly as it was frozen into a run.
+         */
+        TrainingRunRecordOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Feedback Id */
+            feedback_id?: string | null;
+            /** Case Id */
+            case_id?: string | null;
+            /** Final Label */
+            final_label: string;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * TrainingRunStatus
+         * @description Lifecycle of a supervisor-requested training run.
+         *
+         *     QUEUED is set by the supervisor. RUNNING, COMPLETED and FAILED are reported
+         *     by the ML service, which is what actually trains. CANCELLED is only reachable
+         *     from QUEUED: a run already executing has to finish or fail on its own terms.
+         * @enum {string}
+         */
+        TrainingRunStatus: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+        /**
+         * TrainingStatus
+         * @description Whether a verdict may be used to train a model.
+         *
+         *     A concluded case is not automatically training data. A supervisor reviews
+         *     each verdict and decides: CANDIDATE (not yet reviewed), APPROVED (use it),
+         *     EXCLUDED (do not, with a reason). Keeping that a human decision is the
+         *     governance boundary between an operational verdict and a change to the
+         *     thing making the decisions.
+         * @enum {string}
+         */
+        TrainingStatus: "CANDIDATE" | "APPROVED" | "EXCLUDED";
         /** TransactionCreate */
         TransactionCreate: {
             /** External Ref */
@@ -1951,7 +2324,19 @@ export interface operations {
                 scoring_status?: components["schemas"]["ScoringStatus"] | null;
                 /** @description true = flagged, false = clean */
                 has_alert?: boolean | null;
+                /** @description Minimum risk score, 0-100. */
+                min_risk_score?: number | null;
+                /** @description Maximum risk score, 0-100. */
+                max_risk_score?: number | null;
+                /**
+                 * @deprecated
+                 * @description Deprecated: legacy 0-1 model probability. Use min_risk_score.
+                 */
                 min_probability?: number | null;
+                /**
+                 * @deprecated
+                 * @description Deprecated: legacy 0-1 model probability. Use max_risk_score.
+                 */
                 max_probability?: number | null;
                 booked_from?: string | null;
                 booked_to?: string | null;
@@ -2142,6 +2527,12 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["AlertStatus"] | null;
                 severity?: components["schemas"]["AlertSeverity"] | null;
+                /** @description Minimum risk score, 0-100. */
+                min_risk_score?: number | null;
+                /**
+                 * @deprecated
+                 * @description Deprecated: legacy 0-1 model probability. Use min_risk_score.
+                 */
                 min_probability?: number | null;
                 cursor?: string | null;
                 limit?: number;
@@ -2768,6 +3159,303 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_FeedbackExportItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_training_records_v1_training_records_get: {
+        parameters: {
+            query?: {
+                training_status?: components["schemas"]["TrainingStatus"] | null;
+                final_label?: components["schemas"]["FinalLabel"] | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TrainingRecordOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_training_record_v1_training_records__record_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRecordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_training_record_v1_training_records__record_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrainingRecordPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRecordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_training_runs_v1_training_runs_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["TrainingRunStatus"] | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TrainingRunOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_training_run_v1_training_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrainingRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_training_run_v1_training_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_training_run_v1_training_runs__run_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrainingRunPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_training_run_records_v1_training_runs__run_id__records_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TrainingRunRecordOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_training_run_v1_training_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingRunOut"];
                 };
             };
             /** @description Validation Error */
