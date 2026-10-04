@@ -64,3 +64,41 @@ jobs:
       # dependency problem rather than looking like the PR broke the build.
       - name: Audit production dependencies
         run: npm run audit:prod
+
+  # The other supported runtime.
+  #
+  # `engines` allows Node 22 and 24, and this project is developed on 24 while
+  # the job above runs 22. That gap let a failure through: under jsdom, which
+  # `Blob` class `Response.blob()` returns depends on the Node version, so two
+  # tests passed on every laptop and failed only here. Running both runtimes
+  # makes that kind of divergence show up in the PR, not after the push.
+  #
+  # A separate job rather than a matrix on the one above, deliberately: a matrix
+  # renames that job's check to "Verify (22)", and if "Verify" is a required
+  # status check on a protected branch, the renamed job leaves it pending forever
+  # and blocks every merge. Lint, audit and the schema check are runtime-
+  # independent, so they run once, above.
+  verify-node-24:
+    name: Verify on Node 24
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

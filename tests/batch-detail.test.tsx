@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BatchDetailPage from '@/features/labelled-feedback/BatchDetailPage';
 import { saveBlob } from '@/lib/download';
+import { blobText, isBlobLike } from './blob';
 import { renderWithProviders } from './render';
 import { WIRE_BATCH, WIRE_BATCH_RECORD, WIRE_DIRECTORY, WIRE_DOWNLOAD_HEADERS } from './wire';
 
@@ -81,7 +82,11 @@ describe('BatchDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Download CSV' }));
     await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
     const [blob, filename] = vi.mocked(saveBlob).mock.calls[0]!;
-    expect(blob).toBeInstanceOf(Blob);
+    // The bytes the server sent, not the class that holds them: which `Blob`
+    // `Response.blob()` returns under jsdom depends on the Node version (see
+    // tests/blob.ts), and `toBeInstanceOf(Blob)` failed on CI's Node 22 alone.
+    expect(isBlobLike(blob)).toBe(true);
+    expect(await blobText(blob)).toBe('id\r\n');
     expect(filename).toBe('labelled-feedback-october-validated-labels-afe4f9a0.csv');
     expect(urls).toContain(`/v1/labelled-feedback/batches/${WIRE_BATCH.id}/download?format=csv`);
   });

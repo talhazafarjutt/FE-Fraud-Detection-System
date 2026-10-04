@@ -9,6 +9,7 @@ import { downloadExportBatch } from '@/api/endpoints/labelledFeedback';
 import { tokenStore } from '@/auth/tokenStore';
 import { saveBlob } from '@/lib/download';
 import { ApiError } from '@/lib/problem';
+import { blobText } from './blob';
 import { WIRE_DOWNLOAD_CSV_HEADER, WIRE_DOWNLOAD_HEADERS } from './wire';
 
 const BATCH = 'afe4f9a0-4cdb-4de3-a18f-202cfeaa38a1';
@@ -32,16 +33,6 @@ function problemResponse(status: number, detail: string) {
     JSON.stringify({ type: 'about:blank', title: 'Conflict', status, detail, instance: '/x' }),
     { status, headers: { 'Content-Type': 'application/problem+json' } },
   );
-}
-
-/** jsdom's Blob has no `.text()`; FileReader is what it does implement. */
-function readBlob(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(blob);
-  });
 }
 
 beforeEach(() => {
@@ -95,7 +86,7 @@ describe('requestBlob', () => {
     );
 
     expect(result.filename).toBe('labelled-feedback-october-validated-labels-afe4f9a0.csv');
-    expect(await readBlob(result.blob)).toContain('analyst_findings');
+    expect(await blobText(result.blob)).toContain('analyst_findings');
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain(`/v1/labelled-feedback/batches/${BATCH}/download?format=csv`);
@@ -139,7 +130,7 @@ describe('requestBlob', () => {
 
     expect(seen).toEqual(['Bearer header.payload.signature', 'Bearer header.fresh.signature']);
     expect(result.filename).toBe('batch.jsonl');
-    expect(await readBlob(result.blob)).toBe('{"id": 1}\n');
+    expect(await blobText(result.blob)).toBe('{"id": 1}\n');
   });
 
   it('turns a problem response into an ApiError, not a file', async () => {
