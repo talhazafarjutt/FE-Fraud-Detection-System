@@ -104,7 +104,7 @@ describe('the verdict no longer rides on the alert', () => {
 
   it('the verdict is recorded on the case instead', () => {
     // One scheme, one judgement: concluding nine member alerts separately would
-    // emit nine correlated training labels for a single fraud event.
+    // emit nine correlated labels for a single fraud event.
     const cases = read('src/api/endpoints/cases.ts');
     expect(cases).toContain("route('/v1/cases/{case_id}', { case_id: caseId })");
     expect(cases).toContain("body['feedback']");

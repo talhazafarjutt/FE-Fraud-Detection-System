@@ -56,16 +56,25 @@ export const metricsOutcomesSchema = z.object({
   precision_note: z.string(),
 });
 
+/** Scoring latency over the window. The server reports a mean and a max, not percentiles. */
 export const metricsLatencySchema = z.object({
-  p50_ms: z.number().nullable().default(null),
-  p95_ms: z.number().nullable().default(null),
-  p99_ms: z.number().nullable().default(null),
+  mean_ms: z.number().nullable().default(null),
+  max_ms: z.number().nullable().default(null),
   model_version: z.string().nullable().default(null),
 });
 
+/** A timestamp, not an age: the console works out how long it has been waiting. */
 export const metricsQueueHealthSchema = z.object({
   pending_scores: z.number().int(),
-  oldest_pending_seconds: z.number().nullable().default(null),
+  oldest_pending_at: isoDateTime.nullable().default(null),
+});
+
+/** The server's band cut points, on the same 0–100 scale as `RISK_THRESHOLDS`. */
+export const metricsThresholdsSchema = z.object({
+  medium_at: z.number(),
+  high_at: z.number(),
+  critical_at: z.number(),
+  alert_at: z.number(),
 });
 
 export const metricsOverviewSchema = z.object({
@@ -78,6 +87,7 @@ export const metricsOverviewSchema = z.object({
   outcomes: metricsOutcomesSchema,
   latency: metricsLatencySchema,
   queue_health: metricsQueueHealthSchema,
+  thresholds: metricsThresholdsSchema.nullish(),
 });
 export type MetricsOverview = z.infer<typeof metricsOverviewSchema>;
 

@@ -1,10 +1,14 @@
 import type { AlertEvent } from '@/api/schemas/alerts';
 import { StatusChip } from '@/components/Chips';
-import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
+import { UserName } from '@/features/users/UserName';
+import { formatAbsolute, formatRelative } from '@/lib/format';
 
 /**
  * The audit story. Every state change carries the actor and the timestamp the
  * server recorded — this is the pane a government buyer reads most carefully.
+ *
+ * An event whose status did not move is a note on its own (the server records a
+ * note-only update that way) and reads as "Note", not "IN REVIEW → IN REVIEW".
  *
  * Notes are user-controlled text and are rendered as text. There is no
  * dangerouslySetInnerHTML anywhere in this codebase; JSX escaping is the
@@ -40,17 +44,23 @@ export function CaseTrail({ events }: { events: readonly AlertEvent[] }) {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              {event.from_status ? (
-                <>
-                  <StatusChip status={event.from_status} />
-                  <span className="font-mono text-[11px] text-ink-3" aria-label="changed to">
-                    →
-                  </span>
-                </>
+              {event.from_status === event.to_status ? (
+                <span className="mono-label text-ink-3">Note</span>
               ) : (
-                <span className="mono-label text-ink-3">Opened as</span>
+                <>
+                  {event.from_status ? (
+                    <>
+                      <StatusChip status={event.from_status} />
+                      <span className="font-mono text-[11px] text-ink-3" aria-label="changed to">
+                        →
+                      </span>
+                    </>
+                  ) : (
+                    <span className="mono-label text-ink-3">Opened as</span>
+                  )}
+                  <StatusChip status={event.to_status} />
+                </>
               )}
-              <StatusChip status={event.to_status} />
             </div>
 
             {event.note ? (
@@ -60,9 +70,11 @@ export function CaseTrail({ events }: { events: readonly AlertEvent[] }) {
             ) : null}
 
             <p className="mt-3 font-mono text-[10px] uppercase tracking-tag text-ink-3">
-              <span title={event.actor_user_id ?? 'Recorded by the platform'}>
-                {event.actor_user_id ? `Actor ${shortId(event.actor_user_id)}` : 'System'}
-              </span>
+              {event.actor_user_id ? (
+                <UserName id={event.actor_user_id} />
+              ) : (
+                <span title="Recorded by the platform">System</span>
+              )}
               <span className="mx-2">·</span>
               <span title={formatAbsolute(event.created_at)}>
                 {formatRelative(event.created_at)}

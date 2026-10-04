@@ -37,8 +37,8 @@ const NAV: NavItem[] = [
   { to: '/cases', label: 'Cases', scope: 'alerts:read' },
   // The trail describes the analysts, so they do not get to read it.
   { to: '/audit', label: 'Audit', scope: 'audit:read' },
-  // Supervisor only: which verdicts the model is allowed to learn from.
-  { to: '/training', label: 'Training', scope: 'training:manage' },
+  // Supervisor only: which verdicts are validated and exported as labels.
+  { to: '/labelled-feedback', label: 'Labelled Feedback', scope: 'feedback:review' },
   { to: '/users', label: 'Users', scope: 'users:manage' },
 ];
 

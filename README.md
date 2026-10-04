@@ -560,7 +560,7 @@ live backend yet. Verified against the running container:
 | Transaction list (fraud + non-fraud) | `GET /v1/transactions` | **405** — only POST is routed |
 | Dashboard aggregates | `GET /v1/metrics/overview` | **404** |
 | Analyst feedback | `PATCH /v1/fraud-alerts/{id}` with `feedback` | **422** `extra_forbidden` |
-| Retraining export | `GET /v1/feedback/export` | **404** |
+| Labelled feedback export | `GET /v1/feedback/export` | **404** |
 
 `BACKEND-REQUIREMENTS.md` is the implementation spec for all four, written against the same
 contracts the frontend already validates with Zod. Shipping them requires no UI change.

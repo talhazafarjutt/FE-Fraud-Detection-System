@@ -3,47 +3,47 @@ import { cx } from '@/components/primitives';
 const CHIP =
   'inline-flex items-center border px-2 py-1 font-mono text-[11px] uppercase tracking-tag leading-none';
 
-/** Plain-language names: "CANDIDATE" means nothing to a supervisor. */
-export const TRAINING_STATUS_LABEL: Record<string, string> = {
-  CANDIDATE: 'Awaiting review',
-  APPROVED: 'Approved for training',
+/** Plain-language names: "PENDING" means nothing to a supervisor. */
+export const CURATION_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Awaiting validation',
+  VALIDATED: 'Validated',
   EXCLUDED: 'Excluded',
 };
 
-const TRAINING_STATUS_CLASS: Record<string, string> = {
-  CANDIDATE: 'border-ultra text-ultra',
-  APPROVED: 'border-sage text-sage',
+const CURATION_STATUS_CLASS: Record<string, string> = {
+  PENDING: 'border-ultra text-ultra',
+  VALIDATED: 'border-sage text-sage',
   EXCLUDED: 'border-ink-3 text-ink-3',
 };
 
-export function TrainingStatusChip({ status }: { status: string }) {
+export function CurationStatusChip({ status }: { status: string }) {
   return (
-    <span className={cx(CHIP, TRAINING_STATUS_CLASS[status] ?? 'border-rule text-ink-2')}>
-      {TRAINING_STATUS_LABEL[status] ?? status}
+    <span className={cx(CHIP, CURATION_STATUS_CLASS[status] ?? 'border-rule text-ink-2')}>
+      {CURATION_STATUS_LABEL[status] ?? status}
     </span>
   );
 }
 
-export const RUN_STATUS_LABEL: Record<string, string> = {
+export const BATCH_STATUS_LABEL: Record<string, string> = {
   QUEUED: 'Queued',
-  RUNNING: 'Running',
+  PROCESSING: 'Processing',
   COMPLETED: 'Completed',
   FAILED: 'Failed',
   CANCELLED: 'Cancelled',
 };
 
-const RUN_STATUS_CLASS: Record<string, string> = {
+const BATCH_STATUS_CLASS: Record<string, string> = {
   QUEUED: 'border-ultra text-ultra',
-  RUNNING: 'border-amber text-amber',
+  PROCESSING: 'border-amber text-amber',
   COMPLETED: 'border-sage text-sage',
   FAILED: 'border-carmine bg-carmine text-on-carmine',
   CANCELLED: 'border-ink-3 text-ink-3',
 };
 
-export function RunStatusChip({ status }: { status: string }) {
+export function BatchStatusChip({ status }: { status: string }) {
   return (
-    <span className={cx(CHIP, RUN_STATUS_CLASS[status] ?? 'border-rule text-ink-2')}>
-      {RUN_STATUS_LABEL[status] ?? status}
+    <span className={cx(CHIP, BATCH_STATUS_CLASS[status] ?? 'border-rule text-ink-2')}>
+      {BATCH_STATUS_LABEL[status] ?? status}
     </span>
   );
 }
@@ -63,22 +63,22 @@ export function OutcomeChip({ label }: { label: string }) {
 }
 
 /**
- * The same advisory rules the server attaches to a run, applied before it is
- * requested so nobody queues a one-sided dataset by accident. Kept identical to
- * app/services/training_eval.dataset_warnings.
+ * The same advisory rules the server attaches to a batch, applied before it is
+ * created so nobody queues a one-sided batch by accident. Kept identical to
+ * app/services/engine_check.dataset_warnings.
  */
 export function datasetWarnings(counts: Record<string, number>): string[] {
   const warnings: string[] = [];
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   if (total < 20) {
     warnings.push(
-      `Only ${total} record(s). Fine for a targeted correction; too few to retrain a model from on its own.`,
+      `Only ${total} record(s). Fine for a targeted check; too few to draw conclusions from on its own.`,
     );
   }
   const present = Object.entries(counts).filter(([, n]) => n > 0);
   if (present.length === 1) {
     warnings.push(
-      `Every record is ${present[0]![0]}. A model trained on one class learns nothing about telling the two apart.`,
+      `Every record is ${present[0]![0]}. A one-class batch says nothing about how well the engine tells the two apart.`,
     );
   }
   return warnings;

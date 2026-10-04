@@ -1,26 +1,15 @@
 /**
- * Risk bands, expressed on the 0–100 scale the whole product uses.
+ * Risk bands on the 0–100 scale, the same cut points as the backend's
+ * app/services/risk_bands.py:
  *
- * These were 0–1 and every screen converted on its own: the dashboard printed
- * bands as "0.4 – 0.7" while the alert queue next to it showed 83, and the
- * threshold explorer multiplied by 100 with a comment apologising for it. One
- * scale, defined once. The server's cut points are MEDIUM >= 40, HIGH >= 70,
- * and an alert is raised at >= 70; CRITICAL >= 90 is a presentation band only.
- * The UI must never disagree with the backend about where a score sits.
+ *   Low 0–39 · Medium 40–69 · High 70–100 · Critical 90–100
+ *
+ * Critical sits inside High: the server's `risk_level` stops at HIGH and uses
+ * CRITICAL for alert severity. An alert opens at >= 70, or at any score when the
+ * network analyzer returned evidence. The UI must never disagree with the
+ * backend about where a score sits.
  */
 export const RISK_THRESHOLDS = { MEDIUM: 40, HIGH: 70, CRITICAL: 90 } as const;
-
-/**
- * The same cut points on the legacy 0–1 probability scale.
- *
- * Only for comparing against a raw `fraud_probability` that the older contract
- * still returns — never for anything a user reads.
- */
-export const RISK_THRESHOLDS_P = {
-  MEDIUM: RISK_THRESHOLDS.MEDIUM / 100,
-  HIGH: RISK_THRESHOLDS.HIGH / 100,
-  CRITICAL: RISK_THRESHOLDS.CRITICAL / 100,
-} as const;
 
 export type RiskBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -50,9 +39,22 @@ export const BAND_HEX: Record<RiskBand, string> = {
   CRITICAL: 'var(--carmine)',
 };
 
-/** A risk score for display: integer, no unit, never a percent sign. */
+/**
+ * Floored, not rounded: 69.6 is MEDIUM on the server, and printing it as "70"
+ * would show a High number on a Medium chip. No epsilon here — a native score
+ * of 69.99999999999999 is MEDIUM and must print as 69.
+ */
 export function formatRiskScore(score: number): string {
-  return String(Math.round(score));
+  return String(Math.floor(score));
+}
+
+/**
+ * A 0–1 probability on the 0–100 scale. The epsilon absorbs the binary float
+ * error of the multiplication (0.57 * 100 is 56.99999999999999), so it belongs
+ * to this conversion only, never to a score that arrived on 0–100.
+ */
+export function probabilityToScore(probability: number): number {
+  return probability * 100 + 1e-9;
 }
 
 /* ------------------------------------------------------------------ *
@@ -71,7 +73,7 @@ export function formatRiskScore(score: number): string {
 export type RiskSource = 'risk_score' | 'fraud_probability';
 
 export interface RiskDisplay {
-  /** 0–100, rounded. */
+  /** 0–100, floored like `formatRiskScore`. */
   value: number;
   source: RiskSource;
   band: RiskBand;
@@ -84,14 +86,20 @@ export function riskDisplay(
   fraudProbability: number | null | undefined,
 ): RiskDisplay | null {
   if (typeof riskScore === 'number') {
-    const value = Math.round(riskScore);
-    return { value, source: 'risk_score', band: bandFor(value), derived: false };
+    return {
+      value: Math.floor(riskScore),
+      source: 'risk_score',
+      band: bandFor(riskScore),
+      derived: false,
+    };
   }
   if (typeof fraudProbability === 'number') {
+    // Value and band both read the corrected score, so they cannot disagree.
+    const score = probabilityToScore(fraudProbability);
     return {
-      value: Math.round(fraudProbability * 100),
+      value: Math.floor(score),
       source: 'fraud_probability',
-      band: bandFor(fraudProbability * 100),
+      band: bandFor(score),
       derived: true,
     };
   }

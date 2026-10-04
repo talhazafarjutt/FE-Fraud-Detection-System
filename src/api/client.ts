@@ -222,11 +222,14 @@ async function send(path: ApiRoute, options: RequestOptions<unknown>, token: str
 /**
  * One request, at most one refresh, at most one retry. Never more — a retry
  * loop against a 401 is how you lock an account out mid-demo.
+ *
+ * Shared by `request` and `requestBlob`, so a download goes through exactly
+ * the same auth path as everything else. Throws ApiError on any non-2xx.
  */
-export async function request<T>(
+async function authorizedFetch(
   path: ApiRoute,
-  options: RequestOptions<T> = {},
-): Promise<ApiResult<T>> {
+  options: RequestOptions<unknown>,
+): Promise<Response> {
   const override = options.bearerOverride;
 
   // If we are already inside the expiry window, refresh before spending the
@@ -255,6 +258,14 @@ export async function request<T>(
   if (!response.ok) {
     throw new ApiError(await parseProblem(response));
   }
+  return response;
+}
+
+export async function request<T>(
+  path: ApiRoute,
+  options: RequestOptions<T> = {},
+): Promise<ApiResult<T>> {
+  const response = await authorizedFetch(path, options);
 
   const collected: Record<string, string> = {};
   for (const name of options.wantHeaders ?? []) {
@@ -279,6 +290,55 @@ export async function request<T>(
   }
 
   return { data: parsed.data, status: response.status, headers: collected };
+}
+
+type BlobRequestOptions = Omit<RequestOptions<unknown>, 'schema' | 'wantHeaders'>;
+
+interface BlobResult {
+  blob: Blob;
+  /** From `Content-Disposition`; null when the server did not name the file. */
+  filename: string | null;
+}
+
+/** A file response (CSV, JSONL) rather than JSON. Errors still arrive as problem+json. */
+export async function requestBlob(
+  path: ApiRoute,
+  options: BlobRequestOptions = {},
+): Promise<BlobResult> {
+  const response = await authorizedFetch(path, {
+    ...options,
+    headers: { Accept: '*/*', ...options.headers },
+  });
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('Content-Disposition')),
+  };
+}
+
+/**
+ * `attachment; filename="x.csv"`, the RFC 5987 `filename*=UTF-8''x.csv` form
+ * (preferred when both are present), or a bare token. Any directory part is
+ * dropped — the name is used to save a file and nothing else.
+ */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  let name: string | null = null;
+
+  const extended = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (extended?.[2]) {
+    try {
+      name = decodeURIComponent(extended[2].trim().replace(/^"|"$/g, ''));
+    } catch {
+      name = null;
+    }
+  }
+  if (!name) {
+    const plain = /filename\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;\s]+))/i.exec(header);
+    name = plain ? (plain[1]?.replace(/\\(.)/g, '$1') ?? plain[2] ?? null) : null;
+  }
+
+  const base = name?.split(/[\\/]/).pop()?.trim();
+  return base ? base : null;
 }
 
 /** Convenience wrapper for the common case where only the body matters. */

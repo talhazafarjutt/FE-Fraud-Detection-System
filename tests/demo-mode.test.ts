@@ -1,11 +1,17 @@
 import { setupServer } from 'msw/node';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { handlers } from '@/mocks/handlers';
+import { batchVisibleTo, handlers } from '@/mocks/handlers';
 import { auditEntrySchema } from '@/api/schemas/audit';
-import { caseDetailSchema, caseSchema } from '@/api/schemas/cases';
+import { caseDetailSchema, caseSchema, findingsLocked } from '@/api/schemas/cases';
 import { entityDetailSchema, entitySchema, entityTransactionSchema } from '@/api/schemas/entities';
 import { networkGraphSchema } from '@/api/schemas/network';
 import { parsePageTolerant } from '@/api/compat';
+import { filenameFromDisposition } from '@/api/client';
+import { directoryListSchema } from '@/api/schemas/users';
+import {
+  exportBatchSchema,
+  labelledFeedbackSchema,
+} from '@/api/schemas/labelledFeedback';
 
 /**
  * Demo mode must serve the SAME contract as the real API.
@@ -175,6 +181,195 @@ describe('demo mode serves the live contract', () => {
     expect((await get(token, '/v1/cases')).status).toBe(403);
     expect((await get(token, '/v1/entities')).status).toBe(403);
     expect((await get(token, '/v1/fraud-alerts')).status).toBe(403);
+  });
+
+  it('the directory parses and is team-scoped like the live API', async () => {
+    const supervisor = directoryListSchema.parse(
+      await (await get(await signIn('supervisor@example.com'), '/v1/users/directory')).json(),
+    );
+    expect(new Set(supervisor.map((u) => u.team)).size).toBeGreaterThan(1);
+
+    const analyst = directoryListSchema.parse(
+      await (await get(await signIn('analyst@example.com'), '/v1/users/directory')).json(),
+    );
+    expect(analyst.every((u) => u.team === 'team-alpha')).toBe(true);
+    expect(analyst.find((u) => u.email === 'analyst@example.com')?.can_investigate).toBe(true);
+  });
+
+  it('findings save on an open case, are frozen on a concluded one, and a lone note is refused', async () => {
+    const token = await signIn('analyst@example.com');
+    const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
+    const open = page.items.find((c) => c.status === 'IN_REVIEW')!;
+    const concluded = page.items.find((c) => findingsLocked(String(c.status)))!;
+    const patch = (id: string, body: unknown) =>
+      fetch(`${BASE}/v1/cases/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    const saved = caseDetailSchema.parse(
+      await (await patch(open.id, { findings: '  Funds forwarded within minutes.  ' })).json(),
+    );
+    expect(saved.findings).toBe('Funds forwarded within minutes.');
+    expect(saved.findings_by).toBeTruthy();
+    expect(saved.findings_at).toBeTruthy();
+
+    expect((await patch(concluded.id, { findings: 'late' })).status).toBe(409);
+
+    const lone = await patch(open.id, { note: 'just a note' });
+    expect(lone.status).toBe(422);
+    expect(((await lone.json()) as { errors: { field: string }[] }).errors[0]?.field).toBe('note');
+
+    // An analyst cannot assign.
+    expect((await patch(open.id, { assigned_to: null })).status).toBe(403);
+  });
+
+  it('assignment validates the assignee and carries the open member alerts', async () => {
+    const token = await signIn('supervisor@example.com');
+    const people = directoryListSchema.parse(await (await get(token, '/v1/users/directory')).json());
+    const analyst = people.find((u) => u.email === 'analyst@example.com')!;
+    const outsider = people.find((u) => u.email === 'other-analyst@example.com')!;
+
+    const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
+    const target = page.items.find((c) => c.team === 'team-alpha' && c.status === 'OPEN')!;
+    const patch = (body: unknown) =>
+      fetch(`${BASE}/v1/cases/${target.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    const rejected = await patch({ assigned_to: outsider.id });
+    expect(rejected.status).toBe(422);
+    const problem = (await rejected.json()) as { detail: string; errors: { field: string }[] };
+    expect(problem.detail).toBe('The assignee must belong to the same team as the case.');
+    expect(problem.errors[0]?.field).toBe('assigned_to');
+
+    const assigned = caseDetailSchema.parse(await (await patch({ assigned_to: analyst.id })).json());
+    expect(assigned.assigned_to).toBe(analyst.id);
+    const member = assigned.alerts![0]!;
+    const alert = (await (await get(token, `/v1/fraud-alerts/${member.id}`)).json()) as {
+      assigned_to: string | null;
+    };
+    expect(alert.assigned_to).toBe(analyst.id);
+
+    const cleared = caseDetailSchema.parse(await (await patch({ assigned_to: null })).json());
+    expect(cleared.assigned_to).toBeNull();
+  });
+
+  it('a validated verdict can be batched and downloaded; a cancelled batch cannot', async () => {
+    const token = await signIn('supervisor@example.com');
+    const send = (method: string, path: string, body?: unknown) =>
+      fetch(`${BASE}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    const records = parsePageTolerant(
+      labelledFeedbackSchema,
+      await (await get(token, '/v1/labelled-feedback/records?limit=50')).json(),
+    );
+    expect(records.skipped).toBe(0);
+    const record = records.items.find((r) => r.final_label === 'CONFIRMED_FRAUD')!;
+    expect(record.curation_status).toBe('PENDING');
+    expect(record.analyst_findings).toBeTruthy();
+
+    // Unvalidated records are refused, as on the live API.
+    expect(
+      (await send('POST', '/v1/labelled-feedback/batches', { name: 'x', record_ids: [record.id] }))
+        .status,
+    ).toBe(409);
+
+    await send('PATCH', `/v1/labelled-feedback/records/${record.id}`, {
+      curation_status: 'VALIDATED',
+    });
+    const batch = exportBatchSchema.parse(
+      await (
+        await send('POST', '/v1/labelled-feedback/batches', {
+          name: 'Demo batch',
+          record_ids: [record.id],
+        })
+      ).json(),
+    );
+
+    const csv = await get(token, `/v1/labelled-feedback/batches/${batch.id}/download?format=csv`);
+    expect(csv.status).toBe(200);
+    expect(filenameFromDisposition(csv.headers.get('Content-Disposition'))).toBe(
+      `labelled-feedback-demo-batch-${batch.id.slice(0, 8)}.csv`,
+    );
+    const text = await csv.text();
+    expect(text.split('\r\n')[0]).toContain('analyst_findings');
+    // People are ids only in an export.
+    expect(text).not.toMatch(/@example\.com/);
+
+    const jsonl = await get(token, `/v1/labelled-feedback/batches/${batch.id}/download?format=jsonl`);
+    expect(JSON.parse((await jsonl.text()).trim()).id).toBe(record.id);
+
+    await send('POST', `/v1/labelled-feedback/batches/${batch.id}/cancel`);
+    expect((await get(token, `/v1/labelled-feedback/batches/${batch.id}/download`)).status).toBe(409);
+  });
+
+  it('excluding without a reason is a 409, and validating with a null note clears it', async () => {
+    const token = await signIn('supervisor@example.com');
+    const records = parsePageTolerant(
+      labelledFeedbackSchema,
+      await (await get(token, '/v1/labelled-feedback/records?final_label=FALSE_POSITIVE')).json(),
+    );
+    const record = records.items[0]!;
+    const patch = (body: unknown) =>
+      fetch(`${BASE}/v1/labelled-feedback/records/${record.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    expect((await patch({ curation_status: 'EXCLUDED' })).status).toBe(409);
+
+    const excluded = labelledFeedbackSchema.parse(
+      await (
+        await patch({ curation_status: 'EXCLUDED', curation_note: 'One-off branch error.' })
+      ).json(),
+    );
+    expect(excluded.curation_note).toBe('One-off branch error.');
+
+    const validated = labelledFeedbackSchema.parse(
+      await (await patch({ curation_status: 'VALIDATED', curation_note: null })).json(),
+    );
+    expect(validated.curation_status).toBe('VALIDATED');
+    expect(validated.curation_note).toBeNull();
+  });
+
+  it('batches follow the backend team rule', async () => {
+    const machine = await fetch(`${BASE}/v1/auth/client-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: 'ml-service',
+        client_secret: 'demo-ml-secret-not-for-production',
+      }),
+    });
+    const { access_token: ml } = (await machine.json()) as { access_token: string };
+    // The cross-team supervisor's batch (team null) from the test above.
+    const listed = parsePageTolerant(
+      exportBatchSchema,
+      await (await get(ml, '/v1/labelled-feedback/batches')).json(),
+    );
+    expect(listed.items.length).toBeGreaterThan(0);
+
+    const analyst = await signIn('analyst@example.com');
+    expect((await get(analyst, '/v1/labelled-feedback/batches')).status).toBe(403);
+
+    // A team-scoped reviewer sees only their team's batches; the rest are 404.
+    const reviewer = { scopes: ['feedback:review'], team: 'team-alpha' };
+    const crossTeam = { scopes: ['feedback:review', 'alerts:read:all'], team: 'team-alpha' };
+    const mlService = { scopes: ['feedback:process'], team: 'machine' };
+    expect(batchVisibleTo(reviewer, { team: 'team-alpha' })).toBe(true);
+    expect(batchVisibleTo(reviewer, { team: 'team-beta' })).toBe(false);
+    expect(batchVisibleTo(reviewer, { team: null })).toBe(false);
+    expect(batchVisibleTo(crossTeam, { team: 'team-beta' })).toBe(true);
+    expect(batchVisibleTo(mlService, { team: null })).toBe(true);
   });
 
   it('a team with no traffic sees empty lists, not errors', async () => {

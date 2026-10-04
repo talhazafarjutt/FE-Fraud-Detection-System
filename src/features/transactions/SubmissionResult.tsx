@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import type { TransactionCreated } from '@/api/schemas/transactions';
 import { BandChip, SeverityChip, StatusChip } from '@/components/Chips';
 import { Button, Eyebrow } from '@/components/primitives';
-import { formatRiskScore } from '@/lib/risk';
+import { formatRiskScore, probabilityToScore } from '@/lib/risk';
 import { shortId, titleCase } from '@/lib/format';
 import { useScorePoller } from './useScorePoller';
 
@@ -35,6 +35,7 @@ export function SubmissionResult({
   const { state, retry } = useScorePoller(result.transaction_id, pending);
 
   const risk = result.risk ?? (state.phase === 'scored' ? state.risk : null);
+  const riskScore = risk ? (risk.risk_score ?? probabilityToScore(risk.fraud_probability ?? 0)) : 0;
 
   return (
     <div className="border border-rule bg-surface">
@@ -70,12 +71,12 @@ export function SubmissionResult({
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-4">
               <span className="font-display text-[38px] font-bold leading-none tracking-tighter text-ink">
-                {formatRiskScore(risk.risk_score ?? (risk.fraud_probability ?? 0) * 100)}
+                {formatRiskScore(riskScore)}
                 <span className="ml-1 font-mono text-[12px] font-normal tracking-tag text-ink-3">
                   risk
                 </span>
               </span>
-              <BandChip score={risk.risk_score ?? (risk.fraud_probability ?? 0) * 100} />
+              <BandChip score={riskScore} />
               <span className="tag">{risk.model_name}</span>
               <span className="tag">{risk.model_version}</span>
               {risk.latency_ms !== null ? (

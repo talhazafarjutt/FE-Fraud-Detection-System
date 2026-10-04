@@ -51,6 +51,9 @@ export interface MockCase {
   opened_at: string;
   closed_at: string | null;
   alert_count: number;
+  findings: string | null;
+  findings_by: string | null;
+  findings_at: string | null;
   alerts: {
     id: string;
     transaction_id: string;
@@ -92,6 +95,19 @@ export const CASE_FIXTURES: MockCase[] = (() => {
     const openedAt = members
       .map((m) => m.opened_at)
       .sort()[0]!;
+    // The seeded investigator for each team, so an assignment is one the API would accept.
+    const investigator = anchor.team === 'team-beta' ? uuid(3, 'other') : uuid(1, 'analyst');
+    const assignedTo = index % 3 === 0 || concluded ? investigator : null;
+    // ESCALATED is left without findings, so concluding it shows the warning.
+    const findings =
+      status === 'IN_REVIEW' || concluded
+        ? status === 'FALSE_POSITIVE'
+          ? 'Counterparty is a long-standing payroll provider; amounts match the monthly run.'
+          : 'Funds arrive from several new accounts and leave within the hour to one beneficiary.'
+        : null;
+    const findingsAt = findings
+      ? new Date(Date.parse(openedAt) + 3 * 3_600_000).toISOString()
+      : null;
 
     return {
       id,
@@ -99,12 +115,15 @@ export const CASE_FIXTURES: MockCase[] = (() => {
       status,
       severity,
       team: anchor.team,
-      assigned_to: index % 3 === 0 ? uuid(1, 'analyst') : null,
+      assigned_to: assignedTo,
       opened_at: openedAt,
       closed_at: concluded
         ? new Date(Date.parse(openedAt) + 6 * 3_600_000).toISOString()
         : null,
       alert_count: members.length,
+      findings,
+      findings_by: findings ? investigator : null,
+      findings_at: findingsAt,
       alerts: members.map((m) => ({
         id: m.id,
         transaction_id: m.transaction_id,
@@ -131,8 +150,11 @@ export const CASE_FIXTURES: MockCase[] = (() => {
                 : ['established payroll pattern'],
             missing_signals: ['device fingerprint'],
             notes: null,
+            analyst_findings: findings,
+            findings_by: findings ? investigator : null,
+            assigned_to: assignedTo,
             reviewer_user_id: uuid(2, 'supervisor'),
-            alert_opened_at: openedAt,
+            case_opened_at: openedAt,
             decided_at: new Date(Date.parse(openedAt) + 6 * 3_600_000).toISOString(),
             model_version: 'fixture-v1',
             risk_engine_version: 'engine-v1.2.0',

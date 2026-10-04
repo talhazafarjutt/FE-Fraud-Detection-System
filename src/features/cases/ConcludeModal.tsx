@@ -9,6 +9,7 @@ import {
   type ModelAgreement,
 } from '@/api/schemas/cases';
 import { Button, Eyebrow, cx } from '@/components/primitives';
+import { UserName } from '@/features/users/UserName';
 
 /**
  * Concluding an investigation.
@@ -18,13 +19,13 @@ import { Button, Eyebrow, cx } from '@/components/primitives';
  * status without a feedback block is a 409.
  *
  * NOTHING IS PRE-FILLED. A pre-selected label is a guess recorded as human
- * judgement, and this record becomes a training label for the next model. The
- * cost of a wrong confident label is higher than the cost of three more clicks.
+ * judgement, and this record becomes labelled feedback. The cost of a wrong
+ * confident label is higher than the cost of three more clicks.
  *
  * The verdict covers the WHOLE case — every member alert — which is why the
  * alert count is stated on the button and in the heading. One scheme produces
  * one label, not one per alert; nine correlated labels for a single event skew
- * the next model.
+ * anything measured from them.
  */
 
 const LABEL_COPY: Record<FinalLabel, { title: string; body: string }> = {
@@ -57,6 +58,9 @@ export interface ConcludeModalProps {
   caseTitle: string;
   /** Statuses the server will accept from the case's current state. */
   allowedLabels: readonly FinalLabel[];
+  /** The case's analyst findings, stored with the verdict. Not edited here. */
+  findings?: string | null | undefined;
+  findingsBy?: string | null | undefined;
   error?: string | undefined;
 }
 
@@ -68,6 +72,8 @@ export function ConcludeModal({
   alertCount,
   caseTitle,
   allowedLabels,
+  findings,
+  findingsBy,
   error,
 }: ConcludeModalProps) {
   const headingId = useId();
@@ -141,12 +147,32 @@ export function ConcludeModal({
             <strong>
               {alertCount} alert{alertCount === 1 ? '' : 's'}
             </strong>{' '}
-            — the whole scheme, judged once. It is recorded in the audit trail and exported as a
-            single training label.
+            — the whole scheme, judged once. It is recorded in the audit trail as a single label,
+            which a supervisor validates before it is exported.
           </p>
         </header>
 
         <div className="space-y-8 p-6">
+          <section>
+            <Eyebrow className="!mb-2">Analyst findings</Eyebrow>
+            {findings?.trim() ? (
+              <>
+                <p className="max-w-3xl whitespace-pre-wrap border-l border-rule pl-4 text-ink-2">
+                  {findings}
+                </p>
+                {findingsBy ? (
+                  <p className="mt-2 font-mono text-[11px] text-ink-3">
+                    by <UserName id={findingsBy} />
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="border border-amber px-3 py-2 text-[13px] text-amber" role="note">
+                No analyst findings recorded. The verdict will be stored without them.
+              </p>
+            )}
+          </section>
+
           <Group
             legend="Outcome"
             required
@@ -177,7 +203,7 @@ export function ConcludeModal({
           <Group
             legend="Confidence"
             required
-            hint="Lets retraining down-weight a hesitant label instead of treating every label as equal. Required."
+            hint="Lets a hesitant label be weighted below a certain one instead of treating every label as equal. Required."
           >
             <div className="grid gap-px bg-rule sm:grid-cols-3">
               {LABEL_CONFIDENCE.map((value) => (
@@ -223,7 +249,7 @@ export function ConcludeModal({
 
           <Group
             legend="What drove the decision"
-            hint="Optional. Compared against the engine's own explanation during retraining."
+            hint="Optional. Compared against the engine's own explanation when labels are reviewed."
           >
             <ChipInput
               values={drivers}
@@ -235,7 +261,7 @@ export function ConcludeModal({
 
           <Group
             legend="What was missing"
-            hint="Optional. Signals you wanted and did not have — this is how the next model gets better inputs."
+            hint="Optional. Signals you wanted and did not have — a request list for better engine inputs."
           >
             <ChipInput
               values={missing}

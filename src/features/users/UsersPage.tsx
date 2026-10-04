@@ -14,6 +14,7 @@ import {
 import { Button, EmptyState, Eyebrow, Skeleton } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
 import { shortId } from '@/lib/format';
+import { directoryKey } from './directory';
 
 const usersKey = (team: string) => ['users', 'list', team] as const;
 
@@ -47,6 +48,7 @@ export default function UsersPage() {
       push({ tone: 'success', title: 'Account created', detail: `${user.email} on ${user.team}.` });
       reset({ email: '', full_name: '', password: '', team: 'default', roles: ['ANALYST'] });
       void queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: directoryKey });
     },
     onError: (error) => pushError(error, 'The account was not created'),
   });
@@ -57,6 +59,7 @@ export default function UsersPage() {
       push({ tone: 'success', title: 'Account deactivated', detail: user.email });
       setPendingDeactivate(null);
       void queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: directoryKey });
     },
     onError: (error) => {
       pushError(error, 'The account was not deactivated');

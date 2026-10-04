@@ -2,44 +2,45 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LABEL_CONFIDENCE } from '@/api/schemas/cases';
 import type {
-  TrainingRecord,
-  TrainingRecordPatch,
-  TrainingStatus,
-} from '@/api/schemas/training';
+  CurationStatus,
+  LabelledFeedback,
+  LabelledFeedbackPatch,
+} from '@/api/schemas/labelledFeedback';
 import { Button, Eyebrow } from '@/components/primitives';
 import { ChipInput, Choice, Group } from '@/features/cases/ConcludeModal';
-import { formatAbsolute } from '@/lib/format';
+import { PersonFact, UserName } from '@/features/users/UserName';
+import { formatAbsolute, formatRelative } from '@/lib/format';
 import { formatRiskScore } from '@/lib/risk';
-import { OutcomeChip, TrainingStatusChip } from './parts';
+import { CurationStatusChip, OutcomeChip } from './parts';
 
-const DECISIONS: { value: TrainingStatus; title: string; body: string }[] = [
+const DECISIONS: { value: CurationStatus; title: string; body: string }[] = [
   {
-    value: 'APPROVED',
-    title: 'Approve for training',
-    body: 'A clear, representative outcome. Safe to teach the model.',
+    value: 'VALIDATED',
+    title: 'Validate',
+    body: 'A clear, representative outcome. Fit to export as labelled feedback.',
   },
   {
     value: 'EXCLUDED',
     title: 'Exclude',
-    body: 'Correct verdict, but a poor example to learn from. A reason is required.',
+    body: 'Correct verdict, but a poor label to reuse. A reason is required.',
   },
   {
-    value: 'CANDIDATE',
+    value: 'PENDING',
     title: 'Back to review',
-    body: 'Not decided yet. It will not be used until someone approves it.',
+    body: 'Not decided yet. It cannot be exported until someone validates it.',
   },
 ];
 
 export interface RecordEditorProps {
-  record: TrainingRecord | null;
+  record: LabelledFeedback | null;
   onClose: () => void;
-  onSave: (patch: TrainingRecordPatch) => void;
+  onSave: (patch: LabelledFeedbackPatch) => void;
   saving: boolean;
   error?: string | undefined;
 }
 
 /**
- * Review one verdict as a training example.
+ * Review one verdict as labelled feedback.
  *
  * Two things are deliberately not editable here, and the screen says why:
  * the OUTCOME (changing it would leave the case and this record disagreeing —
@@ -50,8 +51,8 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
   const headingId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const [decision, setDecision] = useState<TrainingStatus>('CANDIDATE');
-  const [trainingNote, setTrainingNote] = useState('');
+  const [decision, setDecision] = useState<CurationStatus>('PENDING');
+  const [curationNote, setCurationNote] = useState('');
   const [confidence, setConfidence] = useState('');
   const [typology, setTypology] = useState('');
   const [drivers, setDrivers] = useState<string[]>([]);
@@ -60,8 +61,8 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
 
   useEffect(() => {
     if (!record) return;
-    setDecision((record.training_status as TrainingStatus) ?? 'CANDIDATE');
-    setTrainingNote(record.training_note ?? '');
+    setDecision((record.curation_status as CurationStatus) ?? 'PENDING');
+    setCurationNote(record.curation_note ?? '');
     setConfidence(String(record.confidence ?? ''));
     setTypology(record.fraud_typology ?? '');
     setDrivers(record.decision_drivers ?? []);
@@ -82,13 +83,14 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
   if (!record) return null;
 
   const inconclusive = record.final_label === 'INCONCLUSIVE';
-  const needsReason = decision === 'EXCLUDED' && !trainingNote.trim();
+  const needsReason = decision === 'EXCLUDED' && !curationNote.trim();
 
   // Send only what actually changed: the audit trail records every field in
   // the request, and "changed X from A to A" buries the edits that matter.
-  const patch: TrainingRecordPatch = {};
-  if (decision !== record.training_status) patch.training_status = decision;
-  if (trainingNote !== (record.training_note ?? '')) patch.training_note = trainingNote;
+  const patch: LabelledFeedbackPatch = {};
+  if (decision !== record.curation_status) patch.curation_status = decision;
+  if (curationNote !== (record.curation_note ?? ''))
+    patch.curation_note = curationNote.trim() ? curationNote : null;
   if (confidence && confidence !== String(record.confidence)) patch.confidence = confidence;
   if (typology !== (record.fraud_typology ?? '')) patch.fraud_typology = typology;
   if (JSON.stringify(drivers) !== JSON.stringify(record.decision_drivers ?? []))
@@ -111,13 +113,13 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
         className="w-full max-w-3xl border border-rule bg-paper"
       >
         <header className="border-b border-rule p-6">
-          <Eyebrow className="!mb-2">Review for training</Eyebrow>
+          <Eyebrow className="!mb-2">Review labelled feedback</Eyebrow>
           <h2 id={headingId} className="mb-3">
             {record.case_title ?? 'Investigation'}
           </h2>
           <div className="flex flex-wrap items-center gap-3">
             <OutcomeChip label={String(record.final_label)} />
-            <TrainingStatusChip status={String(record.training_status)} />
+            <CurationStatusChip status={String(record.curation_status)} />
             <Link
               to={`/cases/${record.case_id}`}
               className="font-mono text-[11px] uppercase tracking-label text-ultra hover:underline"
@@ -150,23 +152,45 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
             </p>
           </section>
 
-          {/* --- The training decision ------------------------------------- */}
+          {/* --- What the investigation recorded: read-only ---------------- */}
+          <section>
+            <Eyebrow className="!mb-2">From the investigation</Eyebrow>
+            <dl className="mb-3 grid gap-px border border-rule bg-rule sm:grid-cols-3">
+              <PersonFact
+                dense
+                label="Assigned analyst"
+                id={record.assigned_to}
+                empty="Unassigned"
+              />
+              <PersonFact dense label="Findings by" id={record.findings_by} />
+              <PersonFact dense label="Reviewer" id={record.reviewer_user_id} />
+            </dl>
+            {record.analyst_findings ? (
+              <p className="max-w-3xl whitespace-pre-wrap border-l border-rule pl-4 text-[13px] text-ink-2">
+                {record.analyst_findings}
+              </p>
+            ) : (
+              <p className="text-[12px] text-ink-3">No analyst findings were recorded.</p>
+            )}
+          </section>
+
+          {/* --- The curation decision ------------------------------------- */}
           <Group
-            legend="Training decision"
+            legend="Curation decision"
             required
             hint={
               inconclusive
-                ? 'An inconclusive verdict is not a label and cannot be approved. Reopen the case if it has since been resolved.'
-                : 'Is this verdict a good example for the model to learn from?'
+                ? 'An inconclusive verdict is not a label and cannot be validated. Reopen the case if it has since been resolved.'
+                : 'Is this verdict a clear, representative label?'
             }
           >
             <div className="grid gap-px bg-rule sm:grid-cols-3">
               {DECISIONS.map((option) => (
                 <Choice
                   key={option.value}
-                  name="training_status"
+                  name="curation_status"
                   selected={decision === option.value}
-                  disabled={inconclusive && option.value === 'APPROVED'}
+                  disabled={inconclusive && option.value === 'VALIDATED'}
                   onSelect={() => setDecision(option.value)}
                   title={option.title}
                   body={option.body}
@@ -175,16 +199,35 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
             </div>
           </Group>
 
+          {record.curated_by || record.curated_at ? (
+            <p className="-mt-4 text-[12px] text-ink-3">
+              Last curated
+              {record.curated_by ? (
+                <>
+                  {' '}
+                  by <UserName id={record.curated_by} />
+                </>
+              ) : null}
+              {record.curated_at ? (
+                <span title={formatAbsolute(record.curated_at)}>
+                  {' '}
+                  {formatRelative(record.curated_at)}
+                </span>
+              ) : null}
+              .
+            </p>
+          ) : null}
+
           <Group
             legend="Reason"
             required={decision === 'EXCLUDED'}
-            hint="Why you approved or excluded it. Required to exclude — an unexplained exclusion looks, a year later, like data someone dropped because it was inconvenient."
+            hint="Why you validated or excluded it. Required to exclude — an unexplained exclusion looks, a year later, like data someone dropped because it was inconvenient."
           >
             <textarea
               className="field min-h-20"
               maxLength={2000}
-              value={trainingNote}
-              onChange={(event) => setTrainingNote(event.target.value)}
+              value={curationNote}
+              onChange={(event) => setCurationNote(event.target.value)}
             />
           </Group>
 
@@ -250,11 +293,11 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
             </div>
           </div>
 
-          {(record.run_count ?? 0) > 0 ? (
+          {(record.batch_count ?? 0) > 0 ? (
             <p className="border border-rule px-3 py-2 text-[12px] text-ink-2">
-              Already used in {record.run_count} training run
-              {record.run_count === 1 ? '' : 's'}. Editing it here does not change what those runs
-              trained on — each run froze its own copy.
+              Already in {record.batch_count} export batch
+              {record.batch_count === 1 ? '' : 'es'}. Editing it here does not change those batches
+              — each batch froze its own copy.
             </p>
           ) : null}
 

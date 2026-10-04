@@ -1,11 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { TrainingRecord } from '@/api/schemas/training';
+import type { LabelledFeedback } from '@/api/schemas/labelledFeedback';
 import { Button, Eyebrow } from '@/components/primitives';
 import { Group } from '@/features/cases/ConcludeModal';
 import { countLabels, datasetWarnings, OutcomeChip } from './parts';
 
-export interface StartRunModalProps {
-  records: TrainingRecord[] | null;
+export interface CreateBatchModalProps {
+  records: LabelledFeedback[] | null;
   onClose: () => void;
   onSubmit: (input: { name: string; notes: string }) => void;
   submitting: boolean;
@@ -13,13 +13,19 @@ export interface StartRunModalProps {
 }
 
 /**
- * Ask the ML service to train on exactly these approved records.
+ * Freeze exactly these validated records into an export batch.
  *
  * The selection is frozen the moment this is submitted. Editing or re-concluding
- * any of these verdicts later changes the live record, never what this run
- * trains on — so "which labels produced this model?" always has one answer.
+ * any of these verdicts later changes the live record, never what this batch
+ * contains — so "which labels were exported?" always has one answer.
  */
-export function StartRunModal({ records, onClose, onSubmit, submitting, error }: StartRunModalProps) {
+export function CreateBatchModal({
+  records,
+  onClose,
+  onSubmit,
+  submitting,
+  error,
+}: CreateBatchModalProps) {
   const headingId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState('');
@@ -57,14 +63,13 @@ export function StartRunModal({ records, onClose, onSubmit, submitting, error }:
         className="w-full max-w-2xl border border-rule bg-paper"
       >
         <header className="border-b border-rule p-6">
-          <Eyebrow className="!mb-2">Start a training run</Eyebrow>
+          <Eyebrow className="!mb-2">Create export batch</Eyebrow>
           <h2 id={headingId} className="mb-2">
-            Train on {records.length} approved record{records.length === 1 ? '' : 's'}
+            Export {records.length} validated record{records.length === 1 ? '' : 's'}
           </h2>
           <p className="text-ink-2">
-            These records are frozen now and queued for the ML service, which trains and reports
-            the result back here. Nothing goes live automatically — a new model version still has
-            to be reviewed before it replaces the current one.
+            These records are frozen now and queued for the ML service, which runs an engine check
+            and reports the result here.
           </p>
         </header>
 
@@ -86,7 +91,7 @@ export function StartRunModal({ records, onClose, onSubmit, submitting, error }:
             </ul>
           ) : null}
 
-          <Group legend="Run name" required hint="So the run is recognisable in the history.">
+          <Group legend="Batch name" required hint="So the batch is recognisable in the history.">
             <input
               className="field"
               maxLength={120}
@@ -96,7 +101,7 @@ export function StartRunModal({ records, onClose, onSubmit, submitting, error }:
             />
           </Group>
 
-          <Group legend="Why this run" hint="Optional. What changed that makes these worth training on?">
+          <Group legend="Why this batch" hint="Optional. What makes these worth exporting now?">
             <textarea
               className="field min-h-20"
               maxLength={2000}
@@ -120,7 +125,7 @@ export function StartRunModal({ records, onClose, onSubmit, submitting, error }:
             onClick={() => onSubmit({ name: name.trim(), notes: notes.trim() })}
             disabled={!name.trim() || submitting}
           >
-            {submitting ? 'Queuing…' : 'Queue training run'}
+            {submitting ? 'Queuing…' : 'Create export batch'}
           </Button>
         </footer>
       </div>

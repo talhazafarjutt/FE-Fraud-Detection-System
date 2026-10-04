@@ -20,7 +20,7 @@ export type StageId =
   | 'case'
   | 'investigation'
   | 'verdict'
-  | 'retraining'
+  | 'labelled-feedback'
   | 'audit';
 
 export interface Stage {
@@ -96,13 +96,13 @@ export const STAGES: readonly Stage[] = [
     locked: 'Concluding requires a supervisor — alerts:close. This is four-eyes, not an oversight.',
   },
   {
-    id: 'retraining',
-    title: 'Retraining',
+    id: 'labelled-feedback',
+    title: 'Labelled Feedback',
     blurb:
-      'A supervisor reviews each verdict, approves the good examples, and requests a training run. Nothing retrains on its own.',
-    scope: 'training:manage',
-    to: '/training',
-    locked: 'Choosing what the model learns from is a supervisor decision — training:manage.',
+      'A supervisor validates verdicts and exports validated labels in frozen batches. Nothing changes the live model.',
+    scope: 'feedback:review',
+    to: '/labelled-feedback',
+    locked: 'Validating labels for export is a supervisor decision — feedback:review.',
   },
   {
     id: 'audit',
@@ -180,15 +180,15 @@ export const CAPABILITIES: readonly Capability[] = [
     notableWhenAbsent: false,
   },
   {
-    scope: 'training:manage',
-    does: 'Review verdicts, approve the ones fit to train on, and request a training run.',
-    cannot: 'You cannot choose what the model is trained on. That is a supervisor decision.',
+    scope: 'feedback:review',
+    does: 'Validate verdicts and export the validated labels in frozen batches.',
+    cannot: 'You cannot validate or export labelled feedback. That is a supervisor decision.',
     notableWhenAbsent: true,
   },
   {
     scope: 'feedback:export',
-    does: 'Pull recorded verdicts as training data for the next model.',
-    cannot: 'You cannot export verdicts for retraining.',
+    does: 'Pull recorded verdicts as labelled feedback.',
+    cannot: 'You cannot export recorded verdicts.',
     notableWhenAbsent: false,
   },
   {
@@ -223,7 +223,7 @@ export function roleSummary(scopes: readonly string[]): string {
   const has = (scope: string) => scopes.includes(scope);
 
   if (has('alerts:close')) {
-    return 'You decide. You review what analysts prepare, conclude investigations, and your verdict becomes the training label for the whole scheme.';
+    return 'You decide. You review what analysts prepare, conclude investigations, and your verdict becomes the one label for the whole scheme.';
   }
   if (has('alerts:update')) {
     return 'You investigate. You work alerts and cases for your team and hand them to a supervisor — you do not sign off your own work.';

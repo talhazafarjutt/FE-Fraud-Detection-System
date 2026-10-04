@@ -1,9 +1,23 @@
 import { requestData, route } from '../client';
-import { type CreateUserInput, type User, userListSchema, userSchema } from '../schemas/users';
+import {
+  type CreateUserInput,
+  type DirectoryUser,
+  type User,
+  directoryListSchema,
+  userListSchema,
+  userSchema,
+} from '../schemas/users';
 
 export async function listUsers(team?: string, signal?: AbortSignal): Promise<User[]> {
   return requestData(route('/v1/users', { team }), {
     schema: userListSchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+export async function listDirectory(signal?: AbortSignal): Promise<DirectoryUser[]> {
+  return requestData(route('/v1/users/directory'), {
+    schema: directoryListSchema,
     ...(signal ? { signal } : {}),
   });
 }

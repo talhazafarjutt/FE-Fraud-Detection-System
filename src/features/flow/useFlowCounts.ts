@@ -63,7 +63,7 @@ export function useFlowCounts(): {
   if (metrics.data) {
     const totals = metrics.data.totals;
     if (totals?.transactions != null) counts.transaction = `${totals.transactions} seen`;
-    if (totals?.alerted != null) counts.score = `${totals.alerted} scored above threshold`;
+    if (totals?.alerted != null) counts.score = `${totals.alerted} raised an alert`;
 
     const open = metrics.data.by_alert_status?.['OPEN'];
     if (open != null) counts.alert = `${open} open`;

@@ -1,5 +1,6 @@
 import type { AlertDetail } from '@/api/schemas/alerts';
 import type { Transaction } from '@/api/schemas/transactions';
+import { RISK_THRESHOLDS, bandFor } from '@/lib/risk';
 
 /**
  * The §15.2 aggregate, computed inside the mock backend.
@@ -87,9 +88,10 @@ export function computeOverview({ alerts, transactions, bucket, from, to }: Metr
   const byRisk: Record<string, number> = { LOW: 0, MEDIUM: 0, HIGH: 0 };
   for (const t of tx) {
     const alert = alertByTx.get(t.id);
-    const p = alert?.fraud_probability ?? 0;
-    const band = p >= 0.7 ? 'HIGH' : p >= 0.4 ? 'MEDIUM' : 'LOW';
-    byRisk[band] = (byRisk[band] ?? 0) + 1;
+    const band = bandFor((alert?.fraud_probability ?? 0) * 100);
+    // risk_level stops at HIGH; CRITICAL is an alert severity.
+    const level = band === 'CRITICAL' ? 'HIGH' : band;
+    byRisk[level] = (byRisk[level] ?? 0) + 1;
   }
 
   const key = bucket === 'hour' ? hourKey : dayKey;
@@ -128,7 +130,7 @@ export function computeOverview({ alerts, transactions, bucket, from, to }: Metr
   const closedTotal = confirmed + falsePositives;
 
   const latencies = [41, 58, 73, 96, 120, 155, 180, 240, 310, 420];
-  const pct = (p: number) => latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] ?? null;
+  const meanLatency = Number((latencies.reduce((sum, n) => sum + n, 0) / latencies.length).toFixed(1));
 
   return {
     window: {
@@ -158,17 +160,23 @@ export function computeOverview({ alerts, transactions, bucket, from, to }: Metr
       precision: closedTotal === 0 ? null : Number((confirmed / closedTotal).toFixed(3)),
       precision_note: 'confirmed / (confirmed + false positives), closed cases only',
     },
-    latency: { p50_ms: pct(0.5), p95_ms: pct(0.95), p99_ms: pct(0.99), model_version: 'fixture-v1' },
+    latency: { mean_ms: meanLatency, max_ms: latencies.at(-1) ?? null, model_version: 'fixture-v1' },
     queue_health: {
       pending_scores: pending,
-      oldest_pending_seconds: pending > 0 ? 34 : null,
+      oldest_pending_at: pending > 0 ? new Date(Date.now() - 34_000).toISOString() : null,
+    },
+    thresholds: {
+      medium_at: RISK_THRESHOLDS.MEDIUM,
+      high_at: RISK_THRESHOLDS.HIGH,
+      critical_at: RISK_THRESHOLDS.CRITICAL,
+      alert_at: RISK_THRESHOLDS.HIGH,
     },
   };
 }
 
 /**
  * Closed-case outcomes bucketed by the probability that produced them, so the
- * threshold explorer can answer "what would have happened at 0.6?" against real
+ * threshold explorer can answer "what would have happened at 60?" against real
  * historical decisions rather than a projection.
  */
 export function closedCaseOutcomes(alerts: readonly AlertDetail[]) {

@@ -20,10 +20,29 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-function formatExtras(extras: Record<string, unknown>): string[] {
-  return Object.entries(extras).map(([key, value]) => {
-    const readable = Array.isArray(value) ? value.join(', ') : String(value);
-    return `${key.replace(/_/g, ' ')}: ${readable}`;
+type Primitive = string | number | boolean;
+
+function isPrimitive(value: unknown): value is Primitive {
+  return ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+/**
+ * Extra problem members worth a line, e.g. allowed_transitions on a 409.
+ * Structured members (field `errors`) are already in the detail. A request id
+ * only helps support trace a server fault, so a 4xx — the user's to fix —
+ * does not show one.
+ */
+function formatExtras(extras: Record<string, unknown>, status: number): string[] {
+  return Object.entries(extras).flatMap(([key, value]) => {
+    if (key === 'request_id' && status < 500) return [];
+    const readable = Array.isArray(value)
+      ? value.every(isPrimitive)
+        ? value.join(', ')
+        : null
+      : isPrimitive(value)
+        ? String(value)
+        : null;
+    return readable === null ? [] : [`${key.replace(/_/g, ' ')}: ${readable}`];
   });
 }
 
@@ -47,7 +66,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const pushError = useCallback(
     (error: unknown, fallbackTitle = 'Request failed') => {
       if (error instanceof ApiError) {
-        const extras = formatExtras(error.problem.extras);
+        const extras = formatExtras(error.problem.extras, error.status);
         push({
           tone: 'error',
           title: error.problem.title || fallbackTitle,

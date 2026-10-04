@@ -10,6 +10,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { TeamScopeNote } from '@/components/TeamScopeNote';
 import { useObservedTeam } from '@/auth/observeTeam';
 import { formatAbsolute, formatRelative } from '@/lib/format';
+import { UserName } from '@/features/users/UserName';
 
 const STATUSES = [
   'OPEN',
@@ -176,7 +177,16 @@ export default function CasesPage({ investigationsOnly = false }: { investigatio
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-rule">
-                  {['Investigation', 'Alerts', 'Status', 'Severity', 'Team', 'Opened', 'Closed'].map(
+                  {[
+                    'Investigation',
+                    'Alerts',
+                    'Status',
+                    'Severity',
+                    'Team',
+                    'Assigned',
+                    'Opened',
+                    'Closed',
+                  ].map(
                     (label, i) => (
                       <th
                         key={label}
@@ -198,9 +208,6 @@ export default function CasesPage({ investigationsOnly = false }: { investigatio
                       <Link to={`/cases/${row.id}`} className="font-medium hover:text-ultra">
                         {row.title}
                       </Link>
-                      {row.assigned_to ? (
-                        <span className="ml-2 font-mono text-[11px] text-ink-3">assigned</span>
-                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <AlertCount count={row.alert_count ?? 1} />
@@ -212,6 +219,9 @@ export default function CasesPage({ investigationsOnly = false }: { investigatio
                       <SeverityChip severity={String(row.severity)} />
                     </td>
                     <td className="px-4 py-3 font-mono text-[11px] text-ink-2">{row.team}</td>
+                    <td className="px-4 py-3 text-ink-2">
+                      <UserName id={row.assigned_to} empty="Unassigned" />
+                    </td>
                     <td className="px-4 py-3 text-ink-2" title={formatAbsolute(row.opened_at)}>
                       {formatRelative(row.opened_at)}
                     </td>

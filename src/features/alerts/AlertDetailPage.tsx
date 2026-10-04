@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { type ReactNode, Suspense, lazy } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getAlert } from '@/api/endpoints/alerts';
@@ -11,6 +11,7 @@ import { riskDisplay } from '@/lib/risk';
 import { errorStatus } from '@/lib/problem';
 import { AlertActions } from './AlertActions';
 import { CaseTrail } from './CaseTrail';
+import { UserName } from '@/features/users/UserName';
 import {
   DecisionReasons,
   NetworkNeighbourhood,
@@ -137,8 +138,7 @@ export default function AlertDetailPage() {
             />
             <Fact
               label="Assignee"
-              value={alert.assigned_to ? shortId(alert.assigned_to) : 'Unassigned'}
-              mono
+              value={<UserName id={alert.assigned_to} empty="Unassigned" />}
             />
           </div>
         </div>
@@ -242,7 +242,7 @@ export default function AlertDetailPage() {
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Fact({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div className="bg-surface p-5">
       <p className="mono-label mb-2 text-ink-3">{label}</p>

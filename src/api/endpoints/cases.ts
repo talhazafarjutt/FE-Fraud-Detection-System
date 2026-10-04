@@ -39,12 +39,13 @@ export async function getCase(caseId: string, signal?: AbortSignal): Promise<Cas
 }
 
 /**
- * Triage, assignment and the verdict all land here.
+ * Triage, assignment, findings and the verdict all land here.
  *
  * The server uses `extra="forbid"` and treats an explicit null as a value, so
- * only keys the caller actually set are sent. A status change into a verdict
- * (CONFIRMED_FRAUD / FALSE_POSITIVE) without `feedback` is a 409 by design —
- * the label is the point of concluding, not a side effect of it.
+ * only keys the caller actually set are sent (`assigned_to: null` unassigns).
+ * A status change into a verdict (CONFIRMED_FRAUD / FALSE_POSITIVE) without
+ * `feedback` is a 409 by design — the label is the point of concluding, not a
+ * side effect of it. A `note` without a `status` is a 422.
  */
 export async function patchCase(caseId: string, patch: CasePatchInput): Promise<CaseDetail> {
   const body: Record<string, unknown> = {};
@@ -52,6 +53,7 @@ export async function patchCase(caseId: string, patch: CasePatchInput): Promise<
   if (patch.title !== undefined) body['title'] = patch.title;
   if (patch.assigned_to !== undefined) body['assigned_to'] = patch.assigned_to;
   if (patch.note !== undefined && patch.note !== '') body['note'] = patch.note;
+  if (patch.findings !== undefined) body['findings'] = patch.findings;
   if (patch.feedback !== undefined) {
     const f = patch.feedback;
     body['feedback'] = {

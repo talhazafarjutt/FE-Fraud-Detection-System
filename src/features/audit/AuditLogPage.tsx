@@ -4,6 +4,7 @@ import { listAuditLogs } from '@/api/endpoints/audit';
 import type { AuditEntry, AuditFilters } from '@/api/schemas/audit';
 import { ApiErrorPanel, EmptyPanel, LoadingRows, SkippedRowsNotice } from '@/components/ApiStates';
 import { Button, Eyebrow, SectionHeading, Tag } from '@/components/primitives';
+import { UserName } from '@/features/users/UserName';
 import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
 
 /**
@@ -14,7 +15,14 @@ import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
  * is held by SUPERVISOR and ADMIN only: the trail describes the analysts, so
  * they do not get to read it.
  */
-const ENTITIES = ['fraud_case', 'fraud_alert', 'transaction', 'app_user'] as const;
+const ENTITIES = [
+  'fraud_case',
+  'fraud_alert',
+  'transaction',
+  'app_user',
+  'case_feedback',
+  'export_batch',
+] as const;
 
 export default function AuditLogPage() {
   const [filters, setFilters] = useState<AuditFilters>({ limit: 50 });
@@ -200,9 +208,14 @@ export function AuditTable({ rows, compact = false }: { rows: AuditEntry[]; comp
                 ) : null}
               </td>
               <td className="px-4 py-3">
-                <span className="font-mono text-[11px] text-ink-2" title={row.actor}>
-                  {shortId(row.actor)}
-                </span>
+                {/* A user actor is an id; a service actor is already a name. */}
+                {row.actor_type === 'user' ? (
+                  <UserName id={row.actor} className="font-mono text-[11px] text-ink-2" />
+                ) : (
+                  <span className="font-mono text-[11px] text-ink-2" title={row.actor}>
+                    {shortId(row.actor)}
+                  </span>
+                )}
                 <span className="ml-2 text-[11px] text-ink-3">{row.actor_type}</span>
               </td>
               {compact ? null : (

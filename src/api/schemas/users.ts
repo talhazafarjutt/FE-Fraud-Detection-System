@@ -13,6 +13,27 @@ export type User = z.infer<typeof userSchema>;
 
 export const userListSchema = z.array(userSchema);
 
+/**
+ * `GET /v1/users/directory` — who an id is. Readable by anyone holding
+ * `alerts:read` or `users:manage`, filtered to the caller's team server-side.
+ * Inactive users stay in the list so an old assignee or reviewer still
+ * resolves to a name.
+ */
+export const directoryUserSchema = z
+  .object({
+    id: uuid,
+    full_name: z.string().nullable(),
+    email: z.string(),
+    team: z.string(),
+    roles: z.array(z.string()).default([]),
+    is_active: z.boolean(),
+    can_investigate: z.boolean(),
+  })
+  .passthrough();
+export type DirectoryUser = z.infer<typeof directoryUserSchema>;
+
+export const directoryListSchema = z.array(directoryUserSchema);
+
 export const ROLE_NAMES = ['ANALYST', 'SUPERVISOR', 'ADMIN'] as const;
 
 /**

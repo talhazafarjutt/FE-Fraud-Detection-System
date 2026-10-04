@@ -1,28 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  cancelTrainingRun,
-  createTrainingRun,
-  getTrainingRecord,
-  listTrainingRecords,
-  listTrainingRuns,
-  patchTrainingRecord,
-} from '@/api/endpoints/training';
-import type { TrainingRecord, TrainingRecordPatch } from '@/api/schemas/training';
+  cancelExportBatch,
+  createExportBatch,
+  curateLabelledFeedback,
+  getLabelledFeedback,
+  listExportBatches,
+  listLabelledFeedback,
+} from '@/api/endpoints/labelledFeedback';
+import type { LabelledFeedback, LabelledFeedbackPatch } from '@/api/schemas/labelledFeedback';
 import { ApiErrorPanel, EmptyPanel, LoadingRows, SkippedRowsNotice } from '@/components/ApiStates';
 import { Button, Eyebrow, SectionHeading, cx } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
 import { formatAbsolute, formatRelative } from '@/lib/format';
 import { formatRiskScore } from '@/lib/risk';
-import { describeFailure } from '@/lib/problem';
-import { OutcomeChip, RunStatusChip, TrainingStatusChip } from './parts';
+import { describeFailure, errorStatus } from '@/lib/problem';
+import { UserName } from '@/features/users/UserName';
+import { CreateBatchModal } from './CreateBatchModal';
+import { BatchStatusChip, CurationStatusChip, OutcomeChip } from './parts';
 import { RecordEditor } from './RecordEditor';
-import { StartRunModal } from './StartRunModal';
 
 const STATUS_FILTERS = [
-  { value: 'CANDIDATE', label: 'Awaiting review' },
-  { value: 'APPROVED', label: 'Approved for training' },
+  { value: 'PENDING', label: 'Awaiting validation' },
+  { value: 'VALIDATED', label: 'Validated' },
   { value: 'EXCLUDED', label: 'Excluded' },
   { value: '', label: 'All records' },
 ] as const;
@@ -35,34 +36,37 @@ const OUTCOME_FILTERS = [
 ] as const;
 
 /**
- * Training data — supervisor only.
+ * Labelled feedback — supervisor only.
  *
- * The step between "a case was concluded" and "a model learned from it". Every
- * concluded verdict arrives here awaiting review. A supervisor approves the
- * ones that make good examples, excludes the rest with a reason, then picks
- * approved records and requests a training run. The ML service trains and
- * reports back.
+ * The step between "a case was concluded" and "its label left the system".
+ * Every concluded verdict arrives here awaiting validation. A supervisor
+ * validates the clear ones, excludes the rest with a reason, then picks
+ * validated records and creates an export batch. The ML service processes the
+ * batch and reports an engine check back.
  *
- * Nothing on this screen retrains anything by itself, and that is the point:
- * a verdict cannot reach a model without two deliberate human decisions.
+ * Nothing on this screen changes the live model: a verdict cannot leave the
+ * system without two deliberate human decisions.
  */
-export default function TrainingPage() {
+export default function LabelledFeedbackPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get('tab') === 'runs' ? 'runs' : 'records';
+  const tab = params.get('tab') === 'batches' ? 'batches' : 'records';
 
   return (
     <div className="space-y-8">
       <SectionHeading
         index="08"
-        title="Training data"
-        hint="Concluded verdicts a supervisor has reviewed to teach the model. Nothing trains on its own."
+        title="Labelled Feedback"
+        hint="A supervisor validates concluded verdicts and exports them in frozen batches. Nothing changes the live model."
       />
 
-      <nav className="flex gap-px border border-rule bg-rule" aria-label="Training sections">
+      <nav
+        className="flex gap-px border border-rule bg-rule"
+        aria-label="Labelled feedback sections"
+      >
         {(
           [
             ['records', 'Records to review'],
-            ['runs', 'Training runs'],
+            ['batches', 'Export batches'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -80,7 +84,7 @@ export default function TrainingPage() {
         ))}
       </nav>
 
-      {tab === 'records' ? <RecordsTab /> : <RunsTab />}
+      {tab === 'records' ? <RecordsTab /> : <BatchesTab />}
     </div>
   );
 }
@@ -94,21 +98,22 @@ function RecordsTab() {
   const toast = useToasts();
   const navigate = useNavigate();
 
-  const [trainingStatus, setTrainingStatus] = useState<string>('CANDIDATE');
+  const [curationStatus, setCurationStatus] = useState<string>('PENDING');
   const [outcome, setOutcome] = useState<string>('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<TrainingRecord | null>(null);
-  const [starting, setStarting] = useState<TrainingRecord[] | null>(null);
+  const [editing, setEditing] = useState<LabelledFeedback | null>(null);
+  const [batching, setBatching] = useState<LabelledFeedback[] | null>(null);
   const [excluding, setExcluding] = useState(false);
   const [excludeReason, setExcludeReason] = useState('');
+  const excludeReasonId = useId();
 
   // Arriving from a case page: open that record straight away, whatever the
   // current filter shows.
   const [params, setParams] = useSearchParams();
   const reviewId = params.get('review');
   const deepLinked = useQuery({
-    queryKey: ['training', 'record', reviewId],
-    queryFn: ({ signal }) => getTrainingRecord(reviewId ?? '', signal),
+    queryKey: ['labelled-feedback', 'record', reviewId],
+    queryFn: ({ signal }) => getLabelledFeedback(reviewId ?? '', signal),
     enabled: Boolean(reviewId),
   });
   useEffect(() => {
@@ -124,12 +129,12 @@ function RecordsTab() {
   };
 
   const records = useInfiniteQuery({
-    queryKey: ['training', 'records', trainingStatus, outcome],
+    queryKey: ['labelled-feedback', 'records', curationStatus, outcome],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
-      listTrainingRecords(
+      listLabelledFeedback(
         {
-          ...(trainingStatus ? { training_status: trainingStatus } : {}),
+          ...(curationStatus ? { curation_status: curationStatus } : {}),
           ...(outcome ? { final_label: outcome } : {}),
           limit: 50,
         },
@@ -145,16 +150,16 @@ function RecordsTab() {
   );
   const skipped = records.data?.pages.reduce((sum, p) => sum + p.skipped, 0) ?? 0;
   const chosen = rows.filter((r) => selected.has(r.id));
-  const allApproved = chosen.length > 0 && chosen.every((r) => r.training_status === 'APPROVED');
+  const allValidated = chosen.length > 0 && chosen.every((r) => r.curation_status === 'VALIDATED');
   const anyInconclusive = chosen.some((r) => r.final_label === 'INCONCLUSIVE');
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['training'] });
+    void queryClient.invalidateQueries({ queryKey: ['labelled-feedback'] });
   };
 
   const save = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: TrainingRecordPatch }) =>
-      patchTrainingRecord(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: LabelledFeedbackPatch }) =>
+      curateLabelledFeedback(id, patch),
     onSuccess: () => {
       closeEditor();
       refresh();
@@ -162,10 +167,12 @@ function RecordsTab() {
     },
   });
 
-  /** Bulk approve or exclude. One request per record; failures are reported, not hidden. */
+  /** Bulk validate or exclude. One request per record; failures are reported, not hidden. */
   const bulk = useMutation({
-    mutationFn: async (patch: TrainingRecordPatch) => {
-      const results = await Promise.allSettled(chosen.map((r) => patchTrainingRecord(r.id, patch)));
+    mutationFn: async (patch: LabelledFeedbackPatch) => {
+      const results = await Promise.allSettled(
+        chosen.map((r) => curateLabelledFeedback(r.id, patch)),
+      );
       const failed = results.filter((r) => r.status === 'rejected').length;
       return { done: results.length - failed, failed };
     },
@@ -174,7 +181,7 @@ function RecordsTab() {
       setExcluding(false);
       setExcludeReason('');
       refresh();
-      const verb = patch.training_status === 'APPROVED' ? 'approved' : 'excluded';
+      const verb = patch.curation_status === 'VALIDATED' ? 'validated' : 'excluded';
       toast.push({
         tone: failed ? 'error' : 'success',
         title: `${done} record${done === 1 ? '' : 's'} ${verb}.`,
@@ -183,23 +190,23 @@ function RecordsTab() {
     },
   });
 
-  const startRun = useMutation({
+  const createBatch = useMutation({
     mutationFn: (input: { name: string; notes: string }) =>
-      createTrainingRun({
+      createExportBatch({
         name: input.name,
         ...(input.notes ? { notes: input.notes } : {}),
-        record_ids: (starting ?? []).map((r) => r.id),
+        record_ids: (batching ?? []).map((r) => r.id),
       }),
-    onSuccess: (run) => {
-      setStarting(null);
+    onSuccess: (batch) => {
+      setBatching(null);
       setSelected(new Set());
       refresh();
       toast.push({
         tone: 'success',
-        title: `Training run queued: ${run.name}`,
-        detail: `${run.record_count} records frozen and sent to the ML service.`,
+        title: `Export batch queued: ${batch.name}`,
+        detail: `${batch.record_count} records frozen and sent to the ML service.`,
       });
-      navigate(`/training/runs/${run.id}`);
+      navigate(`/labelled-feedback/batches/${batch.id}`);
     },
   });
 
@@ -218,15 +225,31 @@ function RecordsTab() {
 
   return (
     <div className="space-y-6">
+      {reviewId && deepLinked.isError ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 border border-amber px-4 py-3 text-[13px] text-ink-2"
+          role="status"
+        >
+          <span>
+            {errorStatus(deepLinked.error) === 404
+              ? 'The linked record was not found. It may belong to another team or no longer exist.'
+              : `The linked record could not be opened: ${describeFailure(deepLinked.error).detail}`}
+          </span>
+          <Button variant="ghost" onClick={closeEditor}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+
       <section className="border border-rule bg-surface">
         <div className="grid gap-px bg-rule md:grid-cols-3">
           <label className="block bg-surface p-4">
-            <Eyebrow className="!mb-2">Training status</Eyebrow>
+            <Eyebrow className="!mb-2">Curation status</Eyebrow>
             <select
               className="field"
-              value={trainingStatus}
+              value={curationStatus}
               onChange={(e) => {
-                setTrainingStatus(e.target.value);
+                setCurationStatus(e.target.value);
                 setSelected(new Set());
               }}
             >
@@ -257,7 +280,7 @@ function RecordsTab() {
           <div className="bg-surface p-4">
             <Eyebrow className="!mb-2">How this works</Eyebrow>
             <p className="text-[13px] text-ink-2">
-              Review → approve or exclude → select approved records → start a training run.
+              Review → validate or exclude → select validated records → create an export batch.
             </p>
           </div>
         </div>
@@ -273,35 +296,39 @@ function RecordsTab() {
             <Button
               variant="ghost"
               disabled={bulk.isPending || anyInconclusive}
-              title={anyInconclusive ? 'Inconclusive verdicts cannot be approved.' : undefined}
-              onClick={() => bulk.mutate({ training_status: 'APPROVED' })}
+              title={anyInconclusive ? 'Inconclusive verdicts cannot be validated.' : undefined}
+              onClick={() => bulk.mutate({ curation_status: 'VALIDATED', curation_note: null })}
             >
-              Approve
+              Validate
             </Button>
             <Button variant="ghost" disabled={bulk.isPending} onClick={() => setExcluding(true)}>
               Exclude…
             </Button>
             <Button
-              disabled={!allApproved}
-              title={allApproved ? undefined : 'Only approved records can be trained on.'}
-              onClick={() => setStarting(chosen)}
+              disabled={!allValidated}
+              title={allValidated ? undefined : 'Only validated records can be exported.'}
+              onClick={() => setBatching(chosen)}
             >
-              Start training run…
+              Create export batch
             </Button>
             <Button variant="ghost" onClick={() => setSelected(new Set())}>
               Clear
             </Button>
           </div>
-          {!allApproved ? (
+          {!allValidated ? (
             <p className="text-[12px] text-ink-3">
-              Only approved records can be trained on. Approve the selection first.
+              Only validated records can be exported. Validate the selection first.
             </p>
           ) : null}
           {excluding ? (
             <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor={excludeReasonId} className="mono-label w-full text-ink-3">
+                Reason for excluding
+              </label>
               <input
+                id={excludeReasonId}
                 className="field max-w-xl"
-                placeholder="Why these should not be trained on (required)"
+                placeholder="Why these should not be exported (required)"
                 maxLength={2000}
                 value={excludeReason}
                 onChange={(e) => setExcludeReason(e.target.value)}
@@ -310,7 +337,7 @@ function RecordsTab() {
                 variant="danger"
                 disabled={!excludeReason.trim() || bulk.isPending}
                 onClick={() =>
-                  bulk.mutate({ training_status: 'EXCLUDED', training_note: excludeReason.trim() })
+                  bulk.mutate({ curation_status: 'EXCLUDED', curation_note: excludeReason.trim() })
                 }
               >
                 Exclude {chosen.length}
@@ -328,17 +355,17 @@ function RecordsTab() {
       {records.isError ? (
         <ApiErrorPanel
           error={records.error}
-          what="training records"
-          scopeHint="training:manage"
+          what="labelled feedback"
+          scopeHint="feedback:review"
           onRetry={() => void records.refetch()}
         />
       ) : records.isPending ? (
-        <LoadingRows label="Loading training records" />
+        <LoadingRows label="Loading labelled feedback" />
       ) : rows.length === 0 ? (
         <EmptyPanel
-          title={trainingStatus === 'CANDIDATE' ? 'Nothing awaiting review' : 'No records'}
+          title={curationStatus === 'PENDING' ? 'Nothing awaiting validation' : 'No records'}
           body={
-            trainingStatus === 'CANDIDATE'
+            curationStatus === 'PENDING'
               ? 'Every concluded verdict has been reviewed. New ones arrive here when a supervisor concludes a case.'
               : 'No concluded verdicts match these filters.'
           }
@@ -364,7 +391,7 @@ function RecordsTab() {
                     'Engine',
                     'Typology',
                     'Decided',
-                    'Training',
+                    'Curation',
                     '',
                   ].map((label, i) => (
                     <th
@@ -425,13 +452,13 @@ function RecordsTab() {
                       {formatRelative(row.decided_at)}
                     </td>
                     <td className="px-4 py-3">
-                      <TrainingStatusChip status={String(row.training_status)} />
-                      {(row.run_count ?? 0) > 0 ? (
+                      <CurationStatusChip status={String(row.curation_status)} />
+                      {(row.batch_count ?? 0) > 0 ? (
                         <span
                           className="ml-2 font-mono text-[11px] text-ink-3"
-                          title="Training runs that froze a copy of this record"
+                          title="Export batches that froze a copy of this record"
                         >
-                          ×{row.run_count}
+                          ×{row.batch_count}
                         </span>
                       ) : null}
                     </td>
@@ -468,65 +495,65 @@ function RecordsTab() {
         error={save.error ? describeFailure(save.error).detail : undefined}
       />
 
-      <StartRunModal
-        records={starting}
+      <CreateBatchModal
+        records={batching}
         onClose={() => {
-          setStarting(null);
-          startRun.reset();
+          setBatching(null);
+          createBatch.reset();
         }}
-        onSubmit={(input) => startRun.mutate(input)}
-        submitting={startRun.isPending}
-        error={startRun.error ? describeFailure(startRun.error).detail : undefined}
+        onSubmit={(input) => createBatch.mutate(input)}
+        submitting={createBatch.isPending}
+        error={createBatch.error ? describeFailure(createBatch.error).detail : undefined}
       />
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- * Runs
+ * Export batches
  * ------------------------------------------------------------------ */
 
-function RunsTab() {
+function BatchesTab() {
   const queryClient = useQueryClient();
   const toast = useToasts();
 
-  const runs = useQuery({
-    queryKey: ['training', 'runs'],
-    queryFn: ({ signal }) => listTrainingRuns(null, signal),
-    // A queued run is waiting on the ML service; show it moving without a reload.
+  const batches = useQuery({
+    queryKey: ['labelled-feedback', 'batches'],
+    queryFn: ({ signal }) => listExportBatches(null, signal),
+    // A queued batch is waiting on the ML service; show it moving without a reload.
     refetchInterval: (query) =>
-      query.state.data?.items.some((r) => r.status === 'QUEUED' || r.status === 'RUNNING')
+      query.state.data?.items.some((b) => b.status === 'QUEUED' || b.status === 'PROCESSING')
         ? 5_000
         : false,
   });
 
   const cancel = useMutation({
-    mutationFn: (runId: string) => cancelTrainingRun(runId),
+    mutationFn: (batchId: string) => cancelExportBatch(batchId),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['training'] });
-      toast.push({ tone: 'info', title: 'Training run cancelled.' });
+      void queryClient.invalidateQueries({ queryKey: ['labelled-feedback'] });
+      toast.push({ tone: 'info', title: 'Export batch cancelled.' });
     },
-    onError: (error) => toast.pushError(error, 'Could not cancel that run'),
+    onError: (error) => toast.pushError(error, 'Could not cancel that batch'),
   });
 
-  if (runs.isError) {
+  if (batches.isError) {
     return (
       <ApiErrorPanel
-        error={runs.error}
-        what="training runs"
-        scopeHint="training:manage"
-        onRetry={() => void runs.refetch()}
+        error={batches.error}
+        what="export batches"
+        scopeHint="feedback:review"
+        onRetry={() => void batches.refetch()}
       />
     );
   }
-  if (runs.isPending) return <LoadingRows label="Loading training runs" />;
+  if (batches.isPending) return <LoadingRows label="Loading export batches" />;
 
-  const items = runs.data.items;
+  const items = batches.data.items;
   if (items.length === 0) {
     return (
       <EmptyPanel
-        title="No training runs yet"
-        body="Approve some records, select them on the Records tab, and start a training run."
+        title="No export batches yet"
+        body="Validate some records, select them on the Records tab, and create an export batch."
       />
     );
   }
@@ -536,7 +563,7 @@ function RunsTab() {
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-rule">
-            {['Run', 'Status', 'Records', 'Outcomes', 'Requested', 'Finished', 'Result', ''].map(
+            {['Batch', 'Status', 'Records', 'Outcomes', 'Requested', 'Finished', 'Result', ''].map(
               (label, i) => (
                 <th
                   key={label || i}
@@ -552,41 +579,51 @@ function RunsTab() {
           </tr>
         </thead>
         <tbody>
-          {items.map((run) => (
-            <tr key={run.id} className="border-b border-rule-soft last:border-0">
+          {items.map((batch) => (
+            <tr key={batch.id} className="border-b border-rule-soft last:border-0">
               <td className="px-4 py-3">
-                <Link to={`/training/runs/${run.id}`} className="font-medium hover:text-ultra">
-                  {run.name}
+                <Link
+                  to={`/labelled-feedback/batches/${batch.id}`}
+                  className="font-medium hover:text-ultra"
+                >
+                  {batch.name}
                 </Link>
               </td>
               <td className="px-4 py-3">
-                <RunStatusChip status={String(run.status)} />
+                <BatchStatusChip status={String(batch.status)} />
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums">{run.record_count}</td>
+              <td className="px-4 py-3 text-right font-mono tabular-nums">{batch.record_count}</td>
               <td className="px-4 py-3 font-mono text-[11px] text-ink-2">
-                {Object.entries(run.label_counts ?? {})
+                {Object.entries(batch.label_counts ?? {})
                   .map(([label, n]) => `${label.replace(/_/g, ' ').toLowerCase()} ${n}`)
                   .join(' · ')}
               </td>
-              <td className="px-4 py-3 text-ink-2" title={formatAbsolute(run.requested_at)}>
-                {formatRelative(run.requested_at)}
+              <td className="px-4 py-3 text-ink-2">
+                <span title={formatAbsolute(batch.requested_at)}>
+                  {formatRelative(batch.requested_at)}
+                </span>
+                {batch.requested_by ? (
+                  <span className="block text-[12px] text-ink-3">
+                    by <UserName id={batch.requested_by} />
+                  </span>
+                ) : null}
               </td>
-              <td className="px-4 py-3 text-ink-2" title={formatAbsolute(run.finished_at)}>
-                {run.finished_at ? formatRelative(run.finished_at) : '—'}
+              <td className="px-4 py-3 text-ink-2" title={formatAbsolute(batch.finished_at)}>
+                {batch.finished_at ? formatRelative(batch.finished_at) : '—'}
               </td>
               <td className="px-4 py-3 font-mono text-[11px] text-ink-2">
-                {run.result_model_version
-                  ? `model ${run.result_model_version}`
-                  : (run.metrics as { mode?: string } | null)?.mode === 'evaluation_only'
-                    ? 'evaluation only'
+                {batch.candidate_model_version
+                  ? `candidate ${batch.candidate_model_version}`
+                  : (batch.metrics as { mode?: string } | null)?.mode === 'engine_check'
+                    ? 'engine check'
                     : '—'}
               </td>
               <td className="px-4 py-3 text-right">
-                {run.status === 'QUEUED' ? (
+                {batch.status === 'QUEUED' ? (
                   <Button
                     variant="ghost"
                     disabled={cancel.isPending}
-                    onClick={() => cancel.mutate(run.id)}
+                    onClick={() => cancel.mutate(batch.id)}
                   >
                     Cancel
                   </Button>

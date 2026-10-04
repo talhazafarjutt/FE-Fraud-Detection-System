@@ -1,5 +1,6 @@
 import { HttpResponse, http } from 'msw';
 import { TRANSITIONS, isKnownStatus } from '@/features/alerts/stateMachine';
+import { countLabels, datasetWarnings } from '@/features/labelled-feedback/parts';
 import {
   ACCOUNT_SCOPES,
   ALERT_FIXTURES,
@@ -102,9 +103,8 @@ function visibleTo(session: { scopes: string[]; team: string }, team: string): b
 
 /**
  * §16.3 CASE_FEEDBACK. `model_probability` and `model_version` are COPIED at
- * write time, never joined: when the model is retrained the score may be
- * recomputed, and a training label must stay pinned to the score that actually
- * produced it.
+ * write time, never joined: scores may be recomputed under a later model
+ * version, and a label must stay pinned to the score that actually produced it.
  */
 interface FeedbackRow {
   alert_id: string;
@@ -262,10 +262,155 @@ function requireScope(request: Request, scope: string) {
   return { session };
 }
 
+function requireAnyScope(request: Request, ...scopes: string[]) {
+  const session = sessionFor(request);
+  if (!session) {
+    return { error: problem(401, 'Unauthorized', 'A valid access token is required.') };
+  }
+  if (!scopes.some((scope) => session.scopes.includes(scope))) {
+    return {
+      error: problem(403, 'Insufficient scope', 'The token does not grant the required scope.', {
+        required_scopes: scopes,
+        match: 'any',
+      }),
+    };
+  }
+  return { session };
+}
+
+/** The same checks, in the same order and words, as app/services/assignment.py. */
+function assigneeProblem(assignee: string, team: string, subject: 'case' | 'alert') {
+  const user = users.find((entry) => entry.id === assignee);
+  const reason = !user
+    ? 'No user exists with that id.'
+    : !user.is_active
+      ? 'That user is deactivated and cannot be assigned work.'
+      : user.team !== team
+        ? `The assignee must belong to the same team as the ${subject}.`
+        : !user.scopes.includes('alerts:update')
+          ? `The assignee does not hold alerts:update, so cannot work the ${subject}.`
+          : null;
+  return reason
+    ? problem(422, 'Validation failed', reason, {
+        errors: [{ field: 'assigned_to', message: reason, type: 'value_error' }],
+      })
+    : null;
+}
+
+function rolesFor(scopes: readonly string[]): string[] {
+  if (scopes.includes('users:manage')) return ['ADMIN'];
+  if (scopes.includes('alerts:close')) return ['SUPERVISOR'];
+  return ['ANALYST'];
+}
+
+const CLOSING_STATUSES = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'CLOSED'];
+
 function issue(scopes: string[], team: string, subject: string) {
   const access = `mock-access-${mockUuid()}`;
   sessions.set(access, { scopes, team, subject });
   return access;
+}
+
+/* ------------------------------------------------------------------ *
+ * Labelled feedback state
+ * ------------------------------------------------------------------ */
+
+interface Curation {
+  curation_status: string;
+  curation_note: string | null;
+  curated_by: string | null;
+  curated_at: string | null;
+}
+
+const UNCURATED: Curation = {
+  curation_status: 'PENDING',
+  curation_note: null,
+  curated_by: null,
+  curated_at: null,
+};
+
+/** Keyed by feedback id. A record nobody has reviewed is PENDING. */
+const curation = new Map<string, Curation>();
+
+interface FrozenRecord {
+  id: string;
+  feedback_id: string;
+  case_id: string;
+  final_label: string;
+  snapshot: Record<string, unknown>;
+}
+
+const batches: {
+  batch: Record<string, unknown> & { id: string; status: string; name: string };
+  records: FrozenRecord[];
+}[] = [];
+
+/**
+ * The backend's batch row rule (_batch_team): the ML service reads every batch,
+ * as does a cross-team reader; anyone else sees their own team's only, and a
+ * batch outside it is a 404.
+ */
+export function batchVisibleTo(
+  session: { scopes: string[]; team: string },
+  batch: Record<string, unknown>,
+): boolean {
+  if (session.scopes.includes('feedback:process') || session.scopes.includes('alerts:read:all')) {
+    return true;
+  }
+  return batch['team'] === session.team;
+}
+
+function findBatch(session: { scopes: string[]; team: string }, batchId: unknown) {
+  return batches.find((b) => b.batch.id === batchId && batchVisibleTo(session, b.batch));
+}
+
+type LabelledRecord = Record<string, unknown> &
+  Curation & { id: string; case_id: string; final_label: string; batch_count: number };
+
+function labelledRecords(session: { scopes: string[]; team: string }): LabelledRecord[] {
+  return cases
+    .filter((entry) => entry.feedback && visibleTo(session, entry.team))
+    .map((entry) => {
+      const feedback = entry.feedback!;
+      const id = String(feedback['id']);
+      return {
+        ...feedback,
+        id,
+        case_id: entry.id,
+        final_label: String(feedback['final_label']),
+        external_ref: null,
+        team: entry.team,
+        case_title: entry.title,
+        case_status: entry.status,
+        ...(curation.get(id) ?? UNCURATED),
+        batch_count: batches.filter((b) => b.records.some((r) => r.feedback_id === id)).length,
+      };
+    });
+}
+
+/** Lists joined with `|`, objects as JSON, formula-leading cells neutralised — as the API does. */
+function csvCell(value: unknown): string {
+  let text =
+    value === null || value === undefined
+      ? ''
+      : Array.isArray(value)
+        ? value.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join('|')
+        : typeof value === 'object'
+          ? JSON.stringify(value)
+          : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function toCsv(rows: Record<string, unknown>[]): string {
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  return [columns.join(','), ...rows.map((row) => columns.map((c) => csvCell(row[c])).join(','))]
+    .join('\r\n')
+    .concat('\r\n');
+}
+
+function toJsonl(rows: Record<string, unknown>[]): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n').concat('\n');
 }
 
 export const handlers = [
@@ -426,6 +571,10 @@ export const handlers = [
         required_scopes: ['alerts:assign'],
       });
     }
+    if (body.assigned_to) {
+      const rejected = assigneeProblem(body.assigned_to, alert.team, 'alert');
+      if (rejected) return rejected;
+    }
 
     if (body.status) {
       const terminal = ['CLOSED', 'CONFIRMED_FRAUD', 'FALSE_POSITIVE'];
@@ -472,9 +621,9 @@ export const handlers = [
     if (body.assigned_to !== undefined) alert.assigned_to = body.assigned_to;
 
     if (body.feedback) {
-      // model_probability and model_version are copied, not joined — a training
-      // label must stay pinned to the score that produced it even after the
-      // model is retrained and scores are recomputed.
+      // model_probability and model_version are copied, not joined — a label
+      // must stay pinned to the score that produced it even after scores are
+      // recomputed under a later model version.
       feedbackRows.push({
         ...body.feedback,
         alert_id: alert.id,
@@ -627,6 +776,27 @@ export const handlers = [
     if (guard.error) return guard.error;
     const team = new URL(request.url).searchParams.get('team');
     return HttpResponse.json(team ? users.filter((user) => user.team === team) : users);
+  }),
+
+  http.get('*/v1/users/directory', ({ request }) => {
+    const guard = requireAnyScope(request, 'alerts:read', 'users:manage');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    const everyone =
+      session.scopes.includes('alerts:read:all') || session.scopes.includes('users:manage');
+    return HttpResponse.json(
+      users
+        .filter((user) => everyone || user.team === session.team)
+        .map((user) => ({
+          id: user.id,
+          full_name: user.full_name,
+          email: user.email,
+          team: user.team,
+          roles: rolesFor(user.scopes),
+          is_active: user.is_active,
+          can_investigate: user.scopes.includes('alerts:update'),
+        })),
+    );
   }),
 
   http.post('*/v1/users', async ({ request }) => {
@@ -782,7 +952,7 @@ export const handlers = [
     if (guard.error) return guard.error;
 
     // One JSON object per line: model input, model output, analyst label.
-    // This file is the retraining set — it is what makes the loop real.
+    // This file is the labelled feedback export — it is what makes the loop real.
     const lines = feedbackRows.map((row) => JSON.stringify(row)).join('\n');
     return new HttpResponse(lines, {
       status: 200,
@@ -856,10 +1026,42 @@ export const handlers = [
     const body = (await request.json()) as {
       status?: string;
       title?: string;
-      assigned_to?: string;
+      assigned_to?: string | null;
       note?: string;
+      findings?: string | null;
       feedback?: Record<string, unknown>;
     };
+    // null is "no change", as on the live API; only "" clears.
+    const writingFindings = typeof body.findings === 'string';
+
+    // A case has no trail of its own; a note only travels with a status change.
+    if ((body.status === undefined || body.status === found.status) && body.note?.trim()) {
+      const message =
+        'A note is recorded with a status change. Put investigation findings in `findings`.';
+      return problem(422, 'Validation failed', message, {
+        errors: [{ field: 'note', message, type: 'value_error' }],
+      });
+    }
+
+    if (body.assigned_to !== undefined) {
+      if (!session.scopes.includes('alerts:assign')) {
+        return problem(403, 'Insufficient scope', 'Assigning a case requires alerts:assign.', {
+          required_scopes: ['alerts:assign'],
+        });
+      }
+      if (body.assigned_to !== null) {
+        const rejected = assigneeProblem(body.assigned_to, found.team, 'case');
+        if (rejected) return rejected;
+      }
+    }
+
+    if (writingFindings && CLOSING_STATUSES.includes(found.status)) {
+      return problem(
+        409,
+        'Conflict',
+        `Findings are frozen once a case is concluded; this one is ${found.status}. Reopen the case to change them.`,
+      );
+    }
 
     if (body.status !== undefined) {
       if (!isKnownStatus(found.status) || !isKnownStatus(body.status)) {
@@ -881,7 +1083,7 @@ export const handlers = [
       }
 
       // A verdict without a label is refused. The label IS the verdict; a
-      // status change on its own produces a closed case and no training data.
+      // status change on its own produces a closed case and no label.
       const verdict = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE'];
       if (verdict.includes(body.status) && !body.feedback) {
         return problem(409, 'Conflict', 'Concluding a case requires a feedback block.');
@@ -889,6 +1091,27 @@ export const handlers = [
     }
 
     if (body.feedback) {
+      // Checked apart from the status: feedback alone rewrites the verdict.
+      if (!session.scopes.includes('alerts:close')) {
+        return problem(403, 'Insufficient scope', 'Recording a verdict requires alerts:close.', {
+          required_scopes: ['alerts:close'],
+        });
+      }
+      const verdict = body.status ?? found.status;
+      if (verdict !== 'CONFIRMED_FRAUD' && verdict !== 'FALSE_POSITIVE') {
+        return problem(
+          409,
+          'Conflict',
+          'Feedback can only be recorded on a case being concluded with a verdict.',
+        );
+      }
+      const label = body.feedback['final_label'];
+      if (label && label !== 'INCONCLUSIVE' && label !== verdict) {
+        const message = `A ${String(label)} label contradicts the case verdict ${verdict}.`;
+        return problem(422, 'Validation failed', message, {
+          errors: [{ field: 'feedback.final_label', message, type: 'value_error' }],
+        });
+      }
       const required = ['final_label', 'confidence', 'model_agreement'];
       const missing = required.filter((key) => !body.feedback?.[key]);
       if (missing.length) {
@@ -898,10 +1121,28 @@ export const handlers = [
       }
     }
 
+    // Assignment and findings land first, so a verdict in the same request snapshots them.
+    let reassigned = 0;
+    if (body.assigned_to !== undefined) {
+      found.assigned_to = body.assigned_to;
+      const members = new Set(found.alerts.map((member) => member.id));
+      for (const alert of alerts) {
+        if (members.has(alert.id) && !CLOSING_STATUSES.includes(String(alert.status))) {
+          alert.assigned_to = body.assigned_to;
+          reassigned += 1;
+        }
+      }
+    }
+    if (writingFindings) {
+      const text = (body.findings ?? '').trim() || null;
+      found.findings = text;
+      found.findings_by = text ? session.subject : null;
+      found.findings_at = text ? new Date().toISOString() : null;
+    }
+
     const anchor = found.alerts[0];
     if (body.status) found.status = body.status;
     if (body.title) found.title = body.title;
-    if (body.assigned_to !== undefined) found.assigned_to = body.assigned_to || null;
 
     if (body.feedback) {
       found.closed_at = new Date().toISOString();
@@ -916,8 +1157,11 @@ export const handlers = [
         decision_drivers: body.feedback['decision_drivers'] ?? [],
         missing_signals: body.feedback['missing_signals'] ?? [],
         notes: body.feedback['notes'] ?? null,
+        analyst_findings: found.findings,
+        findings_by: found.findings_by,
+        assigned_to: found.assigned_to,
         reviewer_user_id: session.subject,
-        alert_opened_at: found.opened_at,
+        case_opened_at: found.opened_at,
         decided_at: new Date().toISOString(),
         model_version: 'fixture-v1',
         risk_engine_version: 'engine-v1.2.0',
@@ -938,6 +1182,8 @@ export const handlers = [
 
     recordAudit(session.subject, 'case.patch', 'fraud_case', found.id, {
       ...(body.status ? { status: body.status } : {}),
+      ...(body.assigned_to !== undefined ? { alerts_reassigned: reassigned } : {}),
+      ...(writingFindings ? { findings_updated: true } : {}),
       alert_count: found.alerts.length,
     });
 
@@ -1135,20 +1381,196 @@ export const handlers = [
   }),
 
   /*
-   * Training curation. Demo mode has no concluded-verdict history to curate,
-   * so these answer honestly with empty lists rather than inventing training
-   * data -- the screen shows its empty state instead of an error. The scope
-   * checks still mirror the live API: training:manage is supervisor-only.
+   * Labelled feedback. Records are the verdicts already on the concluded case
+   * fixtures — nothing new is invented — and arrive awaiting validation.
+   * feedback:review is supervisor-only, exactly as on the live API.
    */
-  http.get('*/v1/training/records', ({ request }) => {
-    const guard = requireScope(request, 'training:manage');
+  http.get('*/v1/labelled-feedback/records', ({ request }) => {
+    const guard = requireScope(request, 'feedback:review');
     if (guard.error) return guard.error;
-    return HttpResponse.json({ items: [], next_cursor: null, page_size: 50 });
+    const url = new URL(request.url);
+    const status = url.searchParams.get('curation_status');
+    const label = url.searchParams.get('final_label');
+    const rows = labelledRecords(guard.session).filter(
+      (row) => (!status || row.curation_status === status) && (!label || row.final_label === label),
+    );
+    return HttpResponse.json(paginate(rows, url));
   }),
 
-  http.get('*/v1/training/runs', ({ request }) => {
-    const guard = requireScope(request, 'training:manage');
+  http.get('*/v1/labelled-feedback/records/:recordId', ({ request, params }) => {
+    const guard = requireScope(request, 'feedback:review');
     if (guard.error) return guard.error;
-    return HttpResponse.json({ items: [], next_cursor: null, page_size: 50 });
+    const row = labelledRecords(guard.session).find((r) => r.id === params['recordId']);
+    if (!row) return problem(404, 'Not found', 'No such record is visible to you.');
+    return HttpResponse.json(row);
+  }),
+
+  http.patch('*/v1/labelled-feedback/records/:recordId', async ({ request, params }) => {
+    const guard = requireScope(request, 'feedback:review');
+    if (guard.error) return guard.error;
+    const owner = cases.find(
+      (entry) => entry.feedback?.['id'] === params['recordId'] && visibleTo(guard.session, entry.team),
+    );
+    if (!owner?.feedback) return problem(404, 'Not found', 'No such record is visible to you.');
+
+    const body = (await request.json()) as Record<string, unknown>;
+    const id = String(params['recordId']);
+    const current = curation.get(id) ?? { ...UNCURATED };
+    const status = typeof body['curation_status'] === 'string' ? body['curation_status'] : current.curation_status;
+    // An explicit null clears the note; leaving the key out keeps it.
+    const note =
+      'curation_note' in body
+        ? ((body['curation_note'] as string | null) ?? null)
+        : current.curation_note;
+
+    if (status === 'EXCLUDED' && !note?.trim()) {
+      return problem(
+        409,
+        'Conflict',
+        'Excluding a record requires a curation_note explaining why.',
+      );
+    }
+    if (status === 'VALIDATED' && owner.feedback['final_label'] === 'INCONCLUSIVE') {
+      return problem(409, 'Conflict', 'An inconclusive verdict is not a label and cannot be validated.');
+    }
+
+    for (const key of ['confidence', 'fraud_typology', 'decision_drivers', 'missing_signals', 'notes']) {
+      if (body[key] !== undefined) owner.feedback[key] = body[key];
+    }
+    curation.set(id, {
+      curation_status: status,
+      curation_note: note || null,
+      curated_by: guard.session.subject,
+      curated_at: new Date().toISOString(),
+    });
+    recordAudit(guard.session.subject, 'feedback.curate', 'case_feedback', id, {
+      curation_status: status,
+    });
+    return HttpResponse.json(labelledRecords(guard.session).find((r) => r.id === id));
+  }),
+
+  http.get('*/v1/labelled-feedback/batches', ({ request }) => {
+    const guard = requireAnyScope(request, 'feedback:review', 'feedback:process');
+    if (guard.error) return guard.error;
+    const visible = batches.filter((b) => batchVisibleTo(guard.session, b.batch));
+    return HttpResponse.json(paginate(visible.map((b) => b.batch), new URL(request.url)));
+  }),
+
+  http.post('*/v1/labelled-feedback/batches', async ({ request }) => {
+    const guard = requireScope(request, 'feedback:review');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    const body = (await request.json()) as { name?: string; notes?: string; record_ids?: string[] };
+
+    const visible = labelledRecords(session);
+    const chosen = (body.record_ids ?? []).map((id) => visible.find((r) => r.id === id));
+    if (!body.name?.trim() || chosen.length === 0 || chosen.some((r) => !r)) {
+      return problem(422, 'Validation failed', 'A name and visible record ids are required.');
+    }
+    const records = chosen as LabelledRecord[];
+    const notValidated = records.filter((r) => r.curation_status !== 'VALIDATED');
+    if (notValidated.length) {
+      return problem(409, 'Conflict', 'Only VALIDATED records can be exported. Validate these first.', {
+        not_validated: notValidated.map((r) => ({ id: r.id, curation_status: r.curation_status })),
+      });
+    }
+
+    const labelCounts = countLabels(records.map((r) => r.final_label));
+    const batch: Record<string, unknown> & { id: string; status: string; name: string } = {
+      id: mockUuid(),
+      name: body.name.trim(),
+      notes: body.notes ?? null,
+      status: 'QUEUED',
+      requested_by: session.subject,
+      team: session.scopes.includes('alerts:read:all') ? null : session.team,
+      requested_at: new Date().toISOString(),
+      started_at: null,
+      finished_at: null,
+      record_count: records.length,
+      label_counts: labelCounts,
+      base_model_version: 'fixture-v1',
+      processed_by: null,
+      candidate_model_version: null,
+      metrics: null,
+      error: null,
+      warnings: datasetWarnings(labelCounts),
+    };
+    const frozen = records.map((record) => {
+      const {
+        case_title: _title,
+        case_status: _status,
+        curation_status: _curation,
+        curation_note: _note,
+        curated_by: _by,
+        curated_at: _at,
+        batch_count: _count,
+        ...snapshot
+      } = record;
+      return {
+        id: mockUuid(),
+        feedback_id: record.id,
+        case_id: record.case_id,
+        final_label: record.final_label,
+        snapshot,
+      };
+    });
+    batches.unshift({ batch, records: frozen });
+    recordAudit(session.subject, 'feedback.batch.create', 'export_batch', batch.id, {
+      record_count: records.length,
+    });
+    return HttpResponse.json(batch, { status: 201 });
+  }),
+
+  http.get('*/v1/labelled-feedback/batches/:batchId', ({ request, params }) => {
+    const guard = requireAnyScope(request, 'feedback:review', 'feedback:process');
+    if (guard.error) return guard.error;
+    const found = findBatch(guard.session, params['batchId']);
+    if (!found) return problem(404, 'Not found', 'No such export batch.');
+    return HttpResponse.json(found.batch);
+  }),
+
+  http.get('*/v1/labelled-feedback/batches/:batchId/records', ({ request, params }) => {
+    const guard = requireAnyScope(request, 'feedback:review', 'feedback:process');
+    if (guard.error) return guard.error;
+    const found = findBatch(guard.session, params['batchId']);
+    if (!found) return problem(404, 'Not found', 'No such export batch.');
+    return HttpResponse.json(paginate(found.records, new URL(request.url)));
+  }),
+
+  http.post('*/v1/labelled-feedback/batches/:batchId/cancel', ({ request, params }) => {
+    const guard = requireScope(request, 'feedback:review');
+    if (guard.error) return guard.error;
+    const found = findBatch(guard.session, params['batchId']);
+    if (!found) return problem(404, 'Not found', 'No such export batch.');
+    if (found.batch.status !== 'QUEUED') {
+      return problem(409, 'Conflict', `A ${found.batch.status} batch cannot be cancelled.`);
+    }
+    found.batch.status = 'CANCELLED';
+    found.batch['finished_at'] = new Date().toISOString();
+    return HttpResponse.json(found.batch);
+  }),
+
+  http.get('*/v1/labelled-feedback/batches/:batchId/download', ({ request, params }) => {
+    const guard = requireAnyScope(request, 'feedback:review', 'feedback:process');
+    if (guard.error) return guard.error;
+    const found = findBatch(guard.session, params['batchId']);
+    if (!found) return problem(404, 'Not found', 'No such export batch.');
+    if (found.batch.status === 'CANCELLED') {
+      return problem(409, 'Conflict', 'A cancelled batch cannot be downloaded.');
+    }
+    const format = new URL(request.url).searchParams.get('format') === 'jsonl' ? 'jsonl' : 'csv';
+    const snapshots = found.records.map((r) => r.snapshot);
+    const slug = found.batch.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const filename = `labelled-feedback-${slug}-${found.batch.id.slice(0, 8)}.${format}`;
+    recordAudit(guard.session.subject, 'feedback.batch.download', 'export_batch', found.batch.id, {
+      format,
+      record_count: snapshots.length,
+    });
+    return new HttpResponse(format === 'csv' ? toCsv(snapshots) : toJsonl(snapshots), {
+      headers: {
+        'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
   }),
 ];

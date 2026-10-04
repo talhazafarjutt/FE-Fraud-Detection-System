@@ -1,6 +1,7 @@
 import type { AlertDetail, AlertEvent } from '@/api/schemas/alerts';
 import type { Transaction } from '@/api/schemas/transactions';
 import type { User } from '@/api/schemas/users';
+import { RISK_THRESHOLDS, probabilityToScore } from '@/lib/risk';
 
 /**
  * Deterministic fixtures for the offline demo (VITE_USE_MSW=true).
@@ -61,11 +62,14 @@ const FEATURES = [
 
 const TYPES = ['TRANSFER', 'CASH_OUT', 'CASH_IN', 'PAYMENT', 'DEBIT'] as const;
 
-function severityFor(probability: number): string {
-  if (probability >= 0.9) return 'CRITICAL';
-  if (probability >= 0.7) return 'HIGH';
-  if (probability >= 0.4) return 'MEDIUM';
-  return 'LOW';
+/**
+ * Alert severity as app/services/risk_bands.py assigns it. An alert only exists
+ * at risk >= 70 or on network evidence, so there is no LOW alert.
+ */
+function severityFor(riskScore: number): string {
+  if (riskScore >= RISK_THRESHOLDS.CRITICAL) return 'CRITICAL';
+  if (riskScore >= RISK_THRESHOLDS.HIGH) return 'HIGH';
+  return 'MEDIUM';
 }
 
 function amountFor(index: number): string {
@@ -141,7 +145,16 @@ function eventsFor(index: number, status: string, openedAt: string): AlertEvent[
 
 /** 48 alerts spanning every severity and status, across two teams. */
 export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, index) => {
-  const probability = Number(Math.min(0.999, 0.08 + random() * 0.92).toFixed(4));
+  // Roughly a third of the ring carries real network evidence.
+  const networked = index % 3 === 2;
+  // The backend opens an alert at risk >= 70 or on network evidence, so only a
+  // networked alert may score lower.
+  const draw = random();
+  const probability = Number(
+    Math.min(0.999, networked ? 0.08 + draw * 0.92 : 0.7 + draw * 0.3).toFixed(4),
+  );
+  // Floored like the server's integer score: 69.6 is 69, never a "70" on a MEDIUM chip.
+  const riskScore = Math.floor(probabilityToScore(probability));
   const status = STATUSES[index % STATUSES.length] ?? 'OPEN';
   // Roughly a third of the fixtures sit on team-beta so cross-team visibility
   // is demonstrable — the live seed has none.
@@ -153,7 +166,7 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
     id: uuid(index, 'alert'),
     transaction_id: uuid(index, 'txn'),
     status,
-    severity: severityFor(probability),
+    severity: severityFor(riskScore),
     fraud_probability: probability,
     team,
     assigned_to: index % 4 === 0 ? uuid(1, 'analyst') : null,
@@ -172,7 +185,7 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
      * compatibility layer means the same screens render either one — this is
      * the richer of the two, not a different UI.
      */
-    risk_score: Math.round(probability * 100),
+    risk_score: riskScore,
     case_id: uuid(index % 6, 'case'),
     score_id: uuid(index, 'score'),
     // An object, mirroring the live contract exactly. This is what pins the
@@ -188,14 +201,13 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
     },
     risk_engine_version: 'engine-v1.2.0',
     signals: {
-      model_score: Math.round(probability * 100),
+      model_score: riskScore,
       // A hard rule either fired hard or did not fire at all; it is not a
       // sliding scale, and showing it as one would misrepresent how rules work.
       rule_score: index % 3 === 0 ? 100 : 0,
       anomaly_score: Math.round(Math.min(100, probability * 90 + (index % 11))),
-      // Roughly a third of the ring carries real network evidence.
-      network_score: index % 3 === 2 ? Math.round(40 + (index % 5) * 9) : 0,
-      weighted_score: Math.round(probability * 100),
+      network_score: networked ? Math.round(40 + (index % 5) * 9) : 0,
+      weighted_score: riskScore,
       rule_floor_applied: index % 3 === 0,
     },
     triggered_rules:
@@ -208,34 +220,33 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
             },
           ]
         : [],
-    network:
-      index % 3 === 2
-        ? {
-            network_score: Math.round(40 + (index % 5) * 9),
-            // A map of indicator to value, as the live engine returns it.
-            indicators: {
-              receiver_fan_in: 4,
-              pass_through_ratio: 0.97,
-              sender_is_new: 0,
-              receiver_is_new: 1,
-              closes_short_cycle: index % 5 === 2 ? 1 : 0,
-            },
-            evidence: [
-              'Four accounts paid into this one within 48 hours.',
-              'The balance left again within nine minutes of arriving.',
-            ],
-            neighborhood: {
-              nodes: Array.from({ length: 5 }, (_, n) => ({
-                id: uuid(index * 10 + n, 'node'),
-                label: `••${1000 + ((index * 7 + n) % 9000)}`,
-              })),
-              edges: Array.from({ length: 4 }, (_, n) => ({
-                source: uuid(index * 10 + n, 'node'),
-                target: uuid(index * 10 + 4, 'node'),
-              })),
-            },
-          }
-        : null,
+    network: networked
+      ? {
+          network_score: Math.round(40 + (index % 5) * 9),
+          // A map of indicator to value, as the live engine returns it.
+          indicators: {
+            receiver_fan_in: 4,
+            pass_through_ratio: 0.97,
+            sender_is_new: 0,
+            receiver_is_new: 1,
+            closes_short_cycle: index % 5 === 2 ? 1 : 0,
+          },
+          evidence: [
+            'Four accounts paid into this one within 48 hours.',
+            'The balance left again within nine minutes of arriving.',
+          ],
+          neighborhood: {
+            nodes: Array.from({ length: 5 }, (_, n) => ({
+              id: uuid(index * 10 + n, 'node'),
+              label: `••${1000 + ((index * 7 + n) % 9000)}`,
+            })),
+            edges: Array.from({ length: 4 }, (_, n) => ({
+              source: uuid(index * 10 + n, 'node'),
+              target: uuid(index * 10 + 4, 'node'),
+            })),
+          },
+        }
+      : null,
     anomaly: {
       is_anomaly: probability > 0.6,
       anomaly_score: Math.round(Math.min(100, probability * 90 + (index % 11))),
@@ -246,7 +257,7 @@ export const ALERT_FIXTURES: AlertDetail[] = Array.from({ length: 48 }, (_, inde
       ...(index % 3 === 0
         ? [{ source: 'RULE', code: 'ORIGIN_ACCOUNT_DRAIN', description: 'A hard rule fired.' }]
         : []),
-      ...(index % 3 === 2
+      ...(networked
         ? [{ source: 'NETWORK', code: 'FAN_IN', description: 'Several accounts pay into this one.' }]
         : []),
     ],
@@ -339,7 +350,7 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
       'audit:read',
       'entities:read',
       'feedback:export',
-      'training:manage',
+      'feedback:review',
       'transactions:read',
     ],
     team: 'team-alpha',
@@ -355,7 +366,7 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
 
 export const CLIENT_SCOPES: Record<string, string[]> = {
   'ingest-loader': ['transactions:write'],
-  'ml-service': ['feedback:export', 'scores:write', 'training:execute', 'transactions:read'],
+  'ml-service': ['feedback:export', 'feedback:process', 'scores:write', 'transactions:read'],
 };
 
 /* ------------------------------------------------------------------ *

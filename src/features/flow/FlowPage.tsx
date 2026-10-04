@@ -189,7 +189,7 @@ const WALKTHROUGH = [
     body: 'Only a holder of alerts:close can conclude. Whoever investigated does not sign off.',
   },
   {
-    title: 'It becomes validated labelled data',
-    body: 'One label for the scheme, not nine. Nothing retrains automatically — the label is stored for review and controlled export.',
+    title: 'It becomes labelled feedback',
+    body: 'One label for the scheme, not nine. A supervisor validates it before it leaves in an export batch.',
   },
 ] as const;

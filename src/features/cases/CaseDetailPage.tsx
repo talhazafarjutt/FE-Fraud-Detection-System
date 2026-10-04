@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { attachAlert, detachAlert, getCase, patchCase } from '@/api/endpoints/cases';
@@ -13,9 +13,12 @@ import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
 import { describeFailure } from '@/lib/problem';
 import { transitionsFor } from '@/features/alerts/stateMachine';
 import { AuditTable } from '@/features/audit/AuditLogPage';
+import { AssigneePicker } from '@/features/users/AssigneePicker';
+import { UserName } from '@/features/users/UserName';
 import { ConcludeModal } from './ConcludeModal';
+import { FindingsPanel } from './FindingsPanel';
 import { VerdictPanel } from './VerdictPanel';
-import { CaseTrainingPanel } from '@/features/training/CaseTrainingPanel';
+import { CaseCurationPanel } from '@/features/labelled-feedback/CaseCurationPanel';
 
 const VERDICT_LABELS: readonly FinalLabel[] = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'INCONCLUSIVE'];
 
@@ -39,6 +42,8 @@ export default function CaseDetailPage() {
   const queryClient = useQueryClient();
   const [concluding, setConcluding] = useState(false);
   const [attachId, setAttachId] = useState('');
+  /** undefined = untouched; the picker shows the case's current assignee. */
+  const [assignee, setAssignee] = useState<string | null | undefined>(undefined);
 
   const detail = useQuery({
     queryKey: ['cases', 'detail', caseId],
@@ -56,10 +61,14 @@ export default function CaseDetailPage() {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['cases'] });
     void queryClient.invalidateQueries({ queryKey: ['alerts'] });
+    // Concluding again resets the record's curation status.
+    void queryClient.invalidateQueries({ queryKey: ['labelled-feedback'] });
   };
 
+  // No `note` here: on a case it is only accepted with a status change, and
+  // nothing on this page sends one. Investigation text goes in findings.
   const patch = useMutation({
-    mutationFn: (input: { status?: string; feedback?: FeedbackInput; note?: string }) =>
+    mutationFn: (input: { status?: string; feedback?: FeedbackInput }) =>
       patchCase(caseId, input),
     onSuccess: (updated: CaseDetail) => {
       setConcluding(false);
@@ -69,7 +78,7 @@ export default function CaseDetailPage() {
         title: `Case is now ${String(updated.status).replace(/_/g, ' ')}.`,
         ...(updated.feedback
           ? {
-              detail: `Recorded as one training label covering ${updated.alert_count ?? 1} alert${
+              detail: `Recorded as one labelled verdict covering ${updated.alert_count ?? 1} alert${
                 (updated.alert_count ?? 1) === 1 ? '' : 's'
               }.`,
             }
@@ -77,6 +86,29 @@ export default function CaseDetailPage() {
       });
     },
     onError: (error) => toast.pushError(error, 'Could not update the case'),
+  });
+
+  const saveFindings = useMutation({
+    mutationFn: (findings: string) => patchCase(caseId, { findings }),
+    onSuccess: (updated) => {
+      invalidate();
+      toast.push({ tone: 'success', title: updated.findings ? 'Findings saved.' : 'Findings cleared.' });
+    },
+  });
+
+  const assign = useMutation({
+    mutationFn: (to: string | null) => patchCase(caseId, { assigned_to: to }),
+    onSuccess: (updated) => {
+      // Cache first, or the picker flashes the old assignee until the refetch.
+      queryClient.setQueryData(['cases', 'detail', caseId], updated);
+      setAssignee(undefined);
+      invalidate();
+      toast.push({
+        tone: 'success',
+        title: updated.assigned_to ? 'Case assigned.' : 'Case unassigned.',
+        detail: 'Open member alerts follow the case.',
+      });
+    },
   });
 
   const attach = useMutation({
@@ -130,6 +162,8 @@ export default function CaseDetailPage() {
   const alerts = investigation.alerts ?? [];
   const alertCount = investigation.alert_count ?? alerts.length;
   const canClose = hasScope('alerts:close');
+  const currentAssignee = investigation.assigned_to ?? null;
+  const pickedAssignee = assignee === undefined ? currentAssignee : assignee;
 
   // Only the verdicts the server would actually accept from here.
   const allowedVerdicts = VERDICT_LABELS.filter((label) =>
@@ -158,9 +192,13 @@ export default function CaseDetailPage() {
         }
       />
 
-      <div className="grid gap-px border border-rule bg-rule md:grid-cols-4">
+      <div className="grid gap-px border border-rule bg-rule md:grid-cols-5">
         <Fact label="Alerts in scheme" value={String(alertCount)} />
         <Fact label="Team" value={investigation.team} />
+        <Fact
+          label="Assigned to"
+          value={<UserName id={investigation.assigned_to} empty="Unassigned" />}
+        />
         <Fact
           label="Opened"
           value={formatRelative(investigation.opened_at)}
@@ -172,6 +210,17 @@ export default function CaseDetailPage() {
           hint={investigation.closed_at ? formatAbsolute(investigation.closed_at) : undefined}
         />
       </div>
+
+      <FindingsPanel
+        findings={investigation.findings}
+        findingsBy={investigation.findings_by}
+        findingsAt={investigation.findings_at}
+        status={String(investigation.status)}
+        canEdit={hasScope('alerts:update')}
+        saving={saveFindings.isPending}
+        {...(saveFindings.error ? { error: describeFailure(saveFindings.error).detail } : {})}
+        onSave={(findings) => saveFindings.mutate(findings)}
+      />
 
       {/* --- Actions --------------------------------------------------- */}
       <Panel className="p-6">
@@ -225,14 +274,53 @@ export default function CaseDetailPage() {
             investigates a case is deliberately not the person who signs it off.
           </p>
         ) : null}
+
+        {hasScope('alerts:assign') ? (
+          <form
+            className="mt-6 border-t border-rule pt-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (pickedAssignee !== currentAssignee) assign.mutate(pickedAssignee);
+            }}
+          >
+            <label htmlFor="case-assignee" className="eyebrow !mb-2 block">
+              Assign
+            </label>
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-64 grow sm:max-w-md">
+                <AssigneePicker
+                  id="case-assignee"
+                  team={investigation.team}
+                  value={pickedAssignee}
+                  onChange={(next) => {
+                    assign.reset();
+                    setAssignee(next);
+                  }}
+                  disabled={assign.isPending}
+                  {...(assign.error ? { error: describeFailure(assign.error).detail } : {})}
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="ghost"
+                disabled={pickedAssignee === currentAssignee || assign.isPending}
+              >
+                {assign.isPending ? 'Saving…' : 'Save assignment'}
+              </Button>
+            </div>
+            <p className="mt-2 text-[12px] text-ink-3">
+              Open member alerts are reassigned with the case.
+            </p>
+          </form>
+        ) : null}
       </Panel>
 
       {/* --- Verdict --------------------------------------------------- */}
       {investigation.feedback ? <VerdictPanel feedback={investigation.feedback} /> : null}
 
-      {/* Supervisor only: whether this verdict should ever teach a model. */}
-      {investigation.feedback && hasScope('training:manage') ? (
-        <CaseTrainingPanel feedbackId={investigation.feedback.id} />
+      {/* Supervisor only: whether this verdict is validated for export. */}
+      {investigation.feedback && hasScope('feedback:review') ? (
+        <CaseCurationPanel feedbackId={investigation.feedback.id} />
       ) : null}
 
       {/* --- Member alerts --------------------------------------------- */}
@@ -360,13 +448,16 @@ export default function CaseDetailPage() {
         </section>
       ) : null}
 
+      {/* Feedback is only ever sent by an alerts:close holder; the API 403s anyone else. */}
       <ConcludeModal
-        open={concluding}
+        open={concluding && canClose}
         onClose={() => setConcluding(false)}
         submitting={patch.isPending}
         alertCount={alertCount}
         caseTitle={investigation.title}
         allowedLabels={allowedVerdicts}
+        findings={investigation.findings}
+        findingsBy={investigation.findings_by}
         {...(patchError ? { error: patchError } : {})}
         onSubmit={(status, feedback) => patch.mutate({ status, feedback })}
       />
@@ -385,7 +476,7 @@ function BackLink() {
   );
 }
 
-function Fact({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Fact({ label, value, hint }: { label: string; value: ReactNode; hint?: string | undefined }) {
   return (
     <div className="bg-surface p-4">
       <Eyebrow className="!mb-2">{label}</Eyebrow>

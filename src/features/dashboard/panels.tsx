@@ -4,7 +4,8 @@ import type { Alert } from '@/api/schemas/alerts';
 import type { MetricsOverview } from '@/api/schemas/metrics';
 import { SeverityChip, StatusChip } from '@/components/Chips';
 import { Skeleton, cx } from '@/components/primitives';
-import { formatRelative, shortId } from '@/lib/format';
+import { UserName } from '@/features/users/UserName';
+import { formatAge, formatRelative, secondsSince } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
 import { RISK_THRESHOLDS, riskDisplay } from '@/lib/risk';
 
@@ -100,15 +101,22 @@ export function RiskDistribution({
   byRiskLevel: Record<string, number>;
   total: number;
 }) {
+  // Integer scores, floored for display, so the upper bound of a band is the
+  // next cut point minus one.
   const bands = [
-    { id: 'LOW', label: 'Low', bound: `< ${RISK_THRESHOLDS.MEDIUM}`, colour: 'var(--sage)' },
+    {
+      id: 'LOW',
+      label: 'Low',
+      bound: `0 – ${RISK_THRESHOLDS.MEDIUM - 1}`,
+      colour: 'var(--sage)',
+    },
     {
       id: 'MEDIUM',
       label: 'Medium',
-      bound: `${RISK_THRESHOLDS.MEDIUM} – ${RISK_THRESHOLDS.HIGH}`,
+      bound: `${RISK_THRESHOLDS.MEDIUM} – ${RISK_THRESHOLDS.HIGH - 1}`,
       colour: 'var(--amber)',
     },
-    { id: 'HIGH', label: 'High', bound: `≥ ${RISK_THRESHOLDS.HIGH}`, colour: 'var(--carmine)' },
+    { id: 'HIGH', label: 'High', bound: `${RISK_THRESHOLDS.HIGH} – 100`, colour: 'var(--carmine)' },
   ];
   const max = Math.max(1, ...bands.map((b) => byRiskLevel[b.id] ?? 0));
 
@@ -138,8 +146,8 @@ export function RiskDistribution({
         );
       })}
       <p className="border-t border-rule-soft pt-4 text-[13px] leading-relaxed text-ink-3">
-        The alert threshold sits at {RISK_THRESHOLDS.HIGH}. Everything in the High band raised a
-        case; the mass of traffic below it did not.
+        An alert opens at {RISK_THRESHOLDS.HIGH} or above, or at any score when the network check
+        finds evidence. Everything in the High band raised an alert.
       </p>
     </div>
   );
@@ -292,13 +300,14 @@ export function ModelHealth({
   alertRate: number;
   windowLabel: string;
 }) {
+  const oldest = secondsSince(queueHealth.oldest_pending_at);
   const rows: Array<[string, string]> = [
     ['Model version', latency.model_version ?? '—'],
-    ['Latency p50', latency.p50_ms === null ? '—' : `${latency.p50_ms} ms`],
-    ['Latency p95', latency.p95_ms === null ? '—' : `${latency.p95_ms} ms`],
-    ['Latency p99', latency.p99_ms === null ? '—' : `${latency.p99_ms} ms`],
+    ['Mean latency', latency.mean_ms === null ? '—' : `${latency.mean_ms} ms`],
+    ['Max latency', latency.max_ms === null ? '—' : `${latency.max_ms} ms`],
     ['Alert rate', `${(alertRate * 100).toFixed(2)}%`],
     ['Deferred scores', queueHealth.pending_scores.toLocaleString('en-GB')],
+    ['Oldest deferred', oldest === null ? '—' : formatAge(oldest)],
   ];
 
   return (
@@ -356,7 +365,7 @@ export function TeamThroughput({ alerts }: { alerts: readonly Alert[] }) {
           {rows.map(([assignee, row]) => (
             <tr key={assignee} className="border-b border-rule-soft">
               <td className="py-3 pl-4 pr-4 font-mono text-[12px] text-ink">
-                {assignee === 'unassigned' ? 'Unassigned pool' : shortId(assignee)}
+                {assignee === 'unassigned' ? 'Unassigned pool' : <UserName id={assignee} />}
               </td>
               <td className="num py-3 pr-4 text-right font-mono text-[12px] tabular-nums text-ink">
                 {row.open}

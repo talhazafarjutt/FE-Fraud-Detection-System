@@ -44,16 +44,15 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
       const raised = closed.filter((c) => c.score >= cut);
       const confirmed = raised.filter((c) => c.confirmed).length;
       const falsePositives = raised.length - confirmed;
-      // Fraud below the cut would not have raised a case at all: caught by a
-      // human only if something else surfaced it. We can count it because these
-      // cases carry a real verdict.
-      const missedFraud = closed.filter((c) => !(c.score >= cut) && c.confirmed).length;
+      // Confirmed fraud scored under the cut. Not "missed": network evidence
+      // opens an alert at any score, and is how some of these were raised.
+      const belowCut = closed.filter((c) => !(c.score >= cut) && c.confirmed).length;
       return {
         cut,
         raised: raised.length,
         confirmed,
         falsePositives,
-        missedFraud,
+        belowCut,
         precision: raised.length === 0 ? null : confirmed / raised.length,
       };
     };
@@ -83,7 +82,8 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
         <p className="mt-2 text-[14px] text-ink-2">
           Changing the real threshold is a configuration change, not a UI toggle. This replays{' '}
           {closed.length.toLocaleString('en-GB')} already-resolved case
-          {closed.length === 1 ? '' : 's'}.
+          {closed.length === 1 ? '' : 's'} on score alone; network evidence still opens an alert at
+          any score.
         </p>
       </div>
 
@@ -115,9 +115,9 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
         <Cell label="Confirmed fraud" value={current.confirmed} tone="carmine" />
         <Cell label="False positives" value={current.falsePositives} tone="amber" />
         <Cell
-          label="Fraud missed"
-          value={current.missedFraud}
-          tone={current.missedFraud > 0 ? 'carmine' : 'normal'}
+          label="Below cut"
+          value={current.belowCut}
+          hint="Confirmed fraud scoring under this cut; only network evidence would raise it."
         />
       </dl>
 
@@ -125,7 +125,7 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
         <table className="w-full min-w-[520px] border-collapse">
           <thead>
             <tr className="border-b border-rule">
-              {['Threshold', 'Raised', 'Confirmed', 'False positive', 'Missed', 'Precision'].map(
+              {['Threshold', 'Raised', 'Confirmed', 'False positive', 'Below cut', 'Precision'].map(
                 (label, index) => (
                   <th
                     key={label}
@@ -166,7 +166,7 @@ export function ThresholdExplorer({ alerts }: { alerts: readonly Alert[] }) {
                   {stop.falsePositives}
                 </td>
                 <td className="num py-3 pr-4 text-right font-mono text-[12px] tabular-nums text-ink-2">
-                  {stop.missedFraud}
+                  {stop.belowCut}
                 </td>
                 <td className="num py-3 pr-4 text-right font-mono text-[12px] tabular-nums text-ink">
                   {stop.precision === null ? '—' : `${Math.round(stop.precision * 100)}%`}
@@ -190,10 +190,12 @@ function Cell({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: number;
   tone?: 'normal' | 'carmine' | 'amber';
+  hint?: string;
 }) {
   return (
     <div className="bg-surface p-5">
@@ -208,6 +210,7 @@ function Cell({
       >
         {value.toLocaleString('en-GB')}
       </p>
+      {hint ? <p className="mt-2 text-[12px] text-ink-3">{hint}</p> : null}
     </div>
   );
 }

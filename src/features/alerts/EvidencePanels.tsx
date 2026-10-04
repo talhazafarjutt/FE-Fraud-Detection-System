@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import type { AlertDetail, DecisionReason, Signals, TriggeredRule } from '@/api/schemas/alerts';
 import { cx } from '@/components/primitives';
 import { titleCase } from '@/lib/format';
+import { formatRiskScore } from '@/lib/risk';
 
 /**
  * The evidence surface: the four signals, the rules that fired, the reasons
@@ -40,7 +41,7 @@ export function SignalBars({ signals }: { signals: Signals | null }) {
             <div className="mb-2 flex items-baseline justify-between gap-4">
               <span className="mono-label text-ink-2">{signal.label}</span>
               <span className="num font-mono text-[12px] tabular-nums text-ink">
-                {Math.round(value)}
+                {formatRiskScore(value)}
               </span>
             </div>
             <div className="h-[10px] w-full bg-paper">
@@ -61,7 +62,7 @@ export function SignalBars({ signals }: { signals: Signals | null }) {
           <div className="flex items-baseline justify-between gap-4">
             <span className="mono-label text-ink-3">Weighted</span>
             <span className="num font-mono text-[14px] tabular-nums text-ink">
-              {Math.round(signals.weighted_score)}
+              {formatRiskScore(signals.weighted_score)}
             </span>
           </div>
         </div>
@@ -197,7 +198,7 @@ export function NetworkNeighbourhood({ network }: { network: AlertDetail['networ
         <div className="flex items-baseline justify-between gap-4 border-b border-rule-soft pb-4">
           <span className="mono-label text-ink-3">Network score</span>
           <span className="num font-mono text-[14px] tabular-nums text-ink">
-            {Math.round(network.network_score)}
+            {formatRiskScore(network.network_score)}
           </span>
         </div>
       ) : null}

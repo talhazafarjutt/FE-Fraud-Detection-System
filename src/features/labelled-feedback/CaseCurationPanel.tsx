@@ -1,47 +1,49 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTrainingRecord, patchTrainingRecord } from '@/api/endpoints/training';
-import type { TrainingRecordPatch } from '@/api/schemas/training';
+import { curateLabelledFeedback, getLabelledFeedback } from '@/api/endpoints/labelledFeedback';
+import type { LabelledFeedbackPatch } from '@/api/schemas/labelledFeedback';
 import { Button, Eyebrow, Panel } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
 import { formatRelative } from '@/lib/format';
 import { describeFailure } from '@/lib/problem';
-import { TrainingStatusChip } from './parts';
+import { UserName } from '@/features/users/UserName';
+import { CurationStatusChip } from './parts';
 
 /**
- * "Should the model learn from this case?" — asked where the supervisor just
+ * "Is this verdict fit to reuse as a label?" — asked where the supervisor just
  * finished deciding it.
  *
- * Rendered only for holders of `training:manage`. The verdict above it is the
+ * Rendered only for holders of `feedback:review`. The verdict above it is the
  * investigation's outcome; this is a second, separate judgement about whether
- * that outcome makes a good training example. A correct verdict on an unusual
- * case can still be a bad example.
+ * that outcome is a clear, representative label. A correct verdict on an
+ * unusual case can still be a poor one.
  */
-export function CaseTrainingPanel({ feedbackId }: { feedbackId: string }) {
+export function CaseCurationPanel({ feedbackId }: { feedbackId: string }) {
   const queryClient = useQueryClient();
   const toast = useToasts();
   const [excluding, setExcluding] = useState(false);
   const [reason, setReason] = useState('');
+  const reasonId = useId();
 
   const record = useQuery({
-    queryKey: ['training', 'record', feedbackId],
-    queryFn: ({ signal }) => getTrainingRecord(feedbackId, signal),
+    queryKey: ['labelled-feedback', 'record', feedbackId],
+    queryFn: ({ signal }) => getLabelledFeedback(feedbackId, signal),
   });
 
   const update = useMutation({
-    mutationFn: (patch: TrainingRecordPatch) => patchTrainingRecord(feedbackId, patch),
+    mutationFn: (patch: LabelledFeedbackPatch) => curateLabelledFeedback(feedbackId, patch),
     onSuccess: (updated) => {
       setExcluding(false);
       setReason('');
-      void queryClient.invalidateQueries({ queryKey: ['training'] });
+      void queryClient.invalidateQueries({ queryKey: ['labelled-feedback'] });
       toast.push({
         tone: 'success',
         title:
-          updated.training_status === 'APPROVED'
-            ? 'Approved for training.'
-            : updated.training_status === 'EXCLUDED'
-              ? 'Excluded from training.'
+          updated.curation_status === 'VALIDATED'
+            ? 'Validated.'
+            : updated.curation_status === 'EXCLUDED'
+              ? 'Excluded.'
               : 'Sent back for review.',
         detail: 'Recorded in the audit trail.',
       });
@@ -49,53 +51,56 @@ export function CaseTrainingPanel({ feedbackId }: { feedbackId: string }) {
   });
 
   if (record.isPending || record.isError) {
-    // The verdict panel above is the primary content; a failed training lookup
+    // The verdict panel above is the primary content; a failed curation lookup
     // must not take over the case page. Show the error inline and small.
     return record.isError ? (
       <Panel className="p-4 text-[12px] text-ink-3">
-        Training status unavailable: {describeFailure(record.error).detail}
+        Curation status unavailable: {describeFailure(record.error).detail}
       </Panel>
     ) : null;
   }
 
   const r = record.data;
-  const status = String(r.training_status);
+  const status = String(r.curation_status);
   const inconclusive = r.final_label === 'INCONCLUSIVE';
 
   return (
     <Panel className="p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Eyebrow className="!mb-1">Use for training? — supervisor only</Eyebrow>
+          <Eyebrow className="!mb-1">Labelled feedback — supervisor only</Eyebrow>
           <p className="max-w-2xl text-[13px] text-ink-2">
-            Concluding a case does not teach the model anything. You decide whether this verdict is
-            a good example to train on.
+            You decide whether this verdict is a clear label to export.
           </p>
         </div>
-        <TrainingStatusChip status={status} />
+        <CurationStatusChip status={status} />
       </div>
 
-      {r.training_note ? (
+      {r.curation_note ? (
         <p className="mb-4 border-l-2 border-rule pl-3 text-[13px] text-ink-2">
-          {r.training_note}
-          {r.training_reviewed_at ? (
-            <span className="ml-2 text-ink-3">— {formatRelative(r.training_reviewed_at)}</span>
+          {r.curation_note}
+          {r.curated_by || r.curated_at ? (
+            <span className="ml-2 text-ink-3">
+              —{r.curated_by ? (
+                <>
+                  {' '}
+                  <UserName id={r.curated_by} />
+                </>
+              ) : null}
+              {r.curated_at ? ` ${formatRelative(r.curated_at)}` : null}
+            </span>
           ) : null}
         </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        {status !== 'APPROVED' && !inconclusive ? (
+        {status !== 'VALIDATED' && !inconclusive ? (
           <Button
             disabled={update.isPending}
-            onClick={() =>
-              update.mutate({
-                training_status: 'APPROVED',
-                training_note: 'Approved from the case page after investigation.',
-              })
-            }
+            // Null clears a stale exclusion reason; no note is written for the supervisor.
+            onClick={() => update.mutate({ curation_status: 'VALIDATED', curation_note: null })}
           >
-            Approve for training
+            Validate
           </Button>
         ) : null}
         {status !== 'EXCLUDED' ? (
@@ -103,34 +108,38 @@ export function CaseTrainingPanel({ feedbackId }: { feedbackId: string }) {
             Exclude…
           </Button>
         ) : null}
-        {status !== 'CANDIDATE' && !inconclusive ? (
+        {status !== 'PENDING' && !inconclusive ? (
           <Button
             variant="ghost"
             disabled={update.isPending}
-            onClick={() => update.mutate({ training_status: 'CANDIDATE' })}
+            onClick={() => update.mutate({ curation_status: 'PENDING' })}
           >
             Back to review
           </Button>
         ) : null}
         <Link
-          to={`/training?review=${r.id}`}
+          to={`/labelled-feedback?review=${r.id}`}
           className="font-mono text-[11px] uppercase tracking-label text-ultra hover:underline"
         >
-          Open in Training →
+          Open in Labelled Feedback →
         </Link>
       </div>
 
       {inconclusive ? (
         <p className="mt-3 text-[12px] text-ink-3">
-          An inconclusive verdict is not a label, so it cannot be trained on.
+          An inconclusive verdict is not a label, so it cannot be validated.
         </p>
       ) : null}
 
       {excluding ? (
         <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label htmlFor={reasonId} className="mono-label w-full text-ink-3">
+            Reason for excluding
+          </label>
           <input
+            id={reasonId}
             className="field max-w-xl"
-            placeholder="Why this should not be trained on (required)"
+            placeholder="Why this should not be exported (required)"
             maxLength={2000}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -138,7 +147,9 @@ export function CaseTrainingPanel({ feedbackId }: { feedbackId: string }) {
           <Button
             variant="danger"
             disabled={!reason.trim() || update.isPending}
-            onClick={() => update.mutate({ training_status: 'EXCLUDED', training_note: reason.trim() })}
+            onClick={() =>
+              update.mutate({ curation_status: 'EXCLUDED', curation_note: reason.trim() })
+            }
           >
             Exclude
           </Button>
@@ -154,9 +165,10 @@ export function CaseTrainingPanel({ feedbackId }: { feedbackId: string }) {
         </p>
       ) : null}
 
-      {status === 'APPROVED' ? (
+      {status === 'VALIDATED' ? (
         <p className="mt-4 text-[12px] text-ink-3">
-          Approved records wait in Training until a supervisor selects them for a training run.
+          Validated records wait in Labelled Feedback until a supervisor adds them to an export
+          batch.
         </p>
       ) : null}
     </Panel>

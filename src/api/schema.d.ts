@@ -480,6 +480,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/users/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * User Directory
+         * @description Names for the ids the console shows, and the assignee picker's options.
+         *
+         *     Same team rule as the case files: an analyst sees their own team. A user
+         *     administrator already lists everyone through GET /users, so sees all.
+         */
+        get: operations["user_directory_v1_users_directory_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/users/{user_id}/deactivate": {
         parameters: {
             query?: never;
@@ -538,10 +561,13 @@ export interface paths {
          * Export Feedback
          * @description Closed cases with their investigator verdict, oldest first.
          *
-         *     Ordered ascending by decision time so a training job can pull
-         *     incrementally: keep the last `next_cursor`, pass it back next run, receive
-         *     only what has been decided since. Newest-first would force a full walk to
-         *     the end of history to find new rows.
+         *     Ordered ascending by decision time so a consumer can pull incrementally:
+         *     keep the last `next_cursor`, pass it back next time, receive only what has
+         *     been decided since. Newest-first would force a full walk to the end of
+         *     history to find new rows.
+         *
+         *     `curation_status` narrows the pull to records a supervisor has (or has
+         *     not yet) validated.
          *
          *     Every score field here is the value recorded **at the moment the human
          *     decided**, not a re-read of the current model's opinion. See CaseFeedback.
@@ -555,7 +581,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/records": {
+    "/v1/labelled-feedback/records": {
         parameters: {
             query?: never;
             header?: never;
@@ -563,10 +589,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Training Records
-         * @description Concluded verdicts and their training status, newest decision first.
+         * List Labelled Feedback
+         * @description Concluded verdicts and their curation status, newest decision first.
          */
-        get: operations["list_training_records_v1_training_records_get"];
+        get: operations["list_labelled_feedback_v1_labelled_feedback_records_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -575,30 +601,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/records/{record_id}": {
+    "/v1/labelled-feedback/records/{record_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Training Record */
-        get: operations["get_training_record_v1_training_records__record_id__get"];
+        /** Get Labelled Feedback */
+        get: operations["get_labelled_feedback_v1_labelled_feedback_records__record_id__get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         /**
-         * Patch Training Record
-         * @description Approve, exclude, or correct a record's supporting detail.
+         * Curate Labelled Feedback
+         * @description Validate, exclude, or correct a record's supporting detail.
          *
          *     The label itself is not editable here -- reopen and re-conclude the case.
          */
-        patch: operations["patch_training_record_v1_training_records__record_id__patch"];
+        patch: operations["curate_labelled_feedback_v1_labelled_feedback_records__record_id__patch"];
         trace?: never;
     };
-    "/v1/training/runs": {
+    "/v1/labelled-feedback/batches": {
         parameters: {
             query?: never;
             header?: never;
@@ -606,50 +632,50 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Training Runs
+         * List Export Batches
          * @description Newest first. The ML service polls this with `status=QUEUED`.
          */
-        get: operations["list_training_runs_v1_training_runs_get"];
+        get: operations["list_export_batches_v1_labelled_feedback_batches_get"];
         put?: never;
         /**
-         * Create Training Run
-         * @description Queue a training run on a selection of APPROVED records.
+         * Create Export Batch
+         * @description Queue an export batch of VALIDATED records.
          *
          *     The selection is frozen now. Editing or re-concluding any of these records
-         *     later changes the live record, never what this run trains on.
+         *     later changes the live record, never what this batch contains.
          */
-        post: operations["create_training_run_v1_training_runs_post"];
+        post: operations["create_export_batch_v1_labelled_feedback_batches_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/training/runs/{run_id}": {
+    "/v1/labelled-feedback/batches/{batch_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Training Run */
-        get: operations["get_training_run_v1_training_runs__run_id__get"];
+        /** Get Export Batch */
+        get: operations["get_export_batch_v1_labelled_feedback_batches__batch_id__get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         /**
-         * Report Training Run
-         * @description The ML service reports progress: RUNNING, then COMPLETED or FAILED.
+         * Report Export Batch
+         * @description The ML service reports progress: PROCESSING, then COMPLETED or FAILED.
          *
-         *     Supervisor tokens cannot call this. The person who chose the data is not
-         *     the party that reports what training produced from it.
+         *     Supervisor tokens cannot call this. The person who chose the records is not
+         *     the party that reports what processing them produced.
          */
-        patch: operations["report_training_run_v1_training_runs__run_id__patch"];
+        patch: operations["report_export_batch_v1_labelled_feedback_batches__batch_id__patch"];
         trace?: never;
     };
-    "/v1/training/runs/{run_id}/records": {
+    "/v1/labelled-feedback/batches/{batch_id}/records": {
         parameters: {
             query?: never;
             header?: never;
@@ -657,10 +683,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Training Run Records
-         * @description The frozen dataset, exactly as the run was requested.
+         * List Export Batch Records
+         * @description The frozen records, exactly as the batch was requested.
          */
-        get: operations["list_training_run_records_v1_training_runs__run_id__records_get"];
+        get: operations["list_export_batch_records_v1_labelled_feedback_batches__batch_id__records_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -669,7 +695,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/runs/{run_id}/cancel": {
+    "/v1/labelled-feedback/batches/{batch_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Export Batch
+         * @description The frozen records as CSV (one column per snapshot field) or JSONL.
+         *
+         *     Audited: a download is the moment labelled feedback leaves the system.
+         */
+        get: operations["download_export_batch_v1_labelled_feedback_batches__batch_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/labelled-feedback/batches/{batch_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -679,10 +727,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel Training Run
-         * @description Withdraw a run the ML service has not started yet.
+         * Cancel Export Batch
+         * @description Withdraw a batch the ML service has not started yet.
          */
-        post: operations["cancel_training_run_v1_training_runs__run_id__cancel_post"];
+        post: operations["cancel_export_batch_v1_labelled_feedback_batches__batch_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -988,6 +1036,12 @@ export interface components {
              * @default 0
              */
             alert_count: number;
+            /** Findings */
+            findings?: string | null;
+            /** Findings By */
+            findings_by?: string | null;
+            /** Findings At */
+            findings_at?: string | null;
             /** Alerts */
             alerts?: components["schemas"]["CaseAlertOut"][];
             feedback?: components["schemas"]["FeedbackOut"] | null;
@@ -1021,6 +1075,12 @@ export interface components {
              * @default 0
              */
             alert_count: number;
+            /** Findings */
+            findings?: string | null;
+            /** Findings By */
+            findings_by?: string | null;
+            /** Findings At */
+            findings_at?: string | null;
         };
         /** CasePatch */
         CasePatch: {
@@ -1031,6 +1091,8 @@ export interface components {
             assigned_to?: string | null;
             /** Note */
             note?: string | null;
+            /** Findings */
+            findings?: string | null;
             feedback?: components["schemas"]["FeedbackIn"] | null;
         };
         /** ClientCredentialsRequest */
@@ -1039,6 +1101,41 @@ export interface components {
             client_id: string;
             /** Client Secret */
             client_secret: string;
+        };
+        /**
+         * CurationStatus
+         * @description Whether a verdict is validated for reuse as labelled feedback.
+         *
+         *     A concluded case is not automatically labelled feedback. A supervisor
+         *     reviews each verdict and decides: PENDING (not yet reviewed), VALIDATED
+         *     (fit for reuse), EXCLUDED (not, with a reason). Keeping that a human
+         *     decision is the governance boundary between an operational verdict and
+         *     anything downstream that consumes it.
+         * @enum {string}
+         */
+        CurationStatus: "PENDING" | "VALIDATED" | "EXCLUDED";
+        /**
+         * DirectoryUserOut
+         * @description Who an id is, for resolving names in the console and picking an assignee.
+         */
+        DirectoryUserOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Full Name */
+            full_name: string | null;
+            /** Email */
+            email: string;
+            /** Team */
+            team: string;
+            /** Roles */
+            roles: string[];
+            /** Is Active */
+            is_active: boolean;
+            /** Can Investigate */
+            can_investigate: boolean;
         };
         /** EntityAccountOut */
         EntityAccountOut: {
@@ -1199,14 +1296,115 @@ export interface components {
              */
             dst_account_id: string;
         };
+        /** ExportBatchCreate */
+        ExportBatchCreate: {
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Record Ids */
+            record_ids: string[];
+        };
+        /** ExportBatchOut */
+        ExportBatchOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            status: components["schemas"]["ExportBatchStatus"];
+            /** Requested By */
+            requested_by?: string | null;
+            /** Team */
+            team?: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Record Count */
+            record_count: number;
+            /** Label Counts */
+            label_counts?: {
+                [key: string]: number;
+            };
+            /** Base Model Version */
+            base_model_version?: string | null;
+            /** Processed By */
+            processed_by?: string | null;
+            /** Candidate Model Version */
+            candidate_model_version?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * ExportBatchPatch
+         * @description The ML service reporting progress on a batch it is processing.
+         */
+        ExportBatchPatch: {
+            status: components["schemas"]["ExportBatchStatus"];
+            /** Candidate Model Version */
+            candidate_model_version?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * ExportBatchRecordOut
+         * @description One verdict exactly as it was frozen into a batch.
+         */
+        ExportBatchRecordOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Feedback Id */
+            feedback_id?: string | null;
+            /** Case Id */
+            case_id?: string | null;
+            /** Final Label */
+            final_label: string;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ExportBatchStatus
+         * @description Lifecycle of a supervisor-requested export batch.
+         *
+         *     QUEUED is set by the supervisor. PROCESSING, COMPLETED and FAILED are
+         *     reported by the ML service, which processes the batch. CANCELLED is only
+         *     reachable from QUEUED: a batch already being processed has to finish or
+         *     fail on its own terms.
+         * @enum {string}
+         */
+        ExportBatchStatus: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
         /**
          * FeedbackExportItem
-         * @description One row of the retraining export.
+         * @description One row of the labelled feedback export.
          *
          *     Same shape as the read model plus the transaction's own identifiers, so a
-         *     training pipeline can join back to features without a second API call.
-         *     `team` is included because a model trained on one jurisdiction's verdicts
-         *     should be able to say so.
+         *     consumer can join back to features without a second API call. `team` is
+         *     included so verdicts from one jurisdiction can be told apart from another's.
          */
         FeedbackExportItem: {
             /**
@@ -1241,10 +1439,16 @@ export interface components {
             missing_signals?: string[];
             /** Notes */
             notes?: string | null;
+            /** Analyst Findings */
+            analyst_findings?: string | null;
             /** Reviewer User Id */
             reviewer_user_id?: string | null;
-            /** Alert Opened At */
-            alert_opened_at?: string | null;
+            /** Findings By */
+            findings_by?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Case Opened At */
+            case_opened_at?: string | null;
             /**
              * Decided At
              * Format: date-time
@@ -1325,10 +1529,16 @@ export interface components {
             missing_signals?: string[];
             /** Notes */
             notes?: string | null;
+            /** Analyst Findings */
+            analyst_findings?: string | null;
             /** Reviewer User Id */
             reviewer_user_id?: string | null;
-            /** Alert Opened At */
-            alert_opened_at?: string | null;
+            /** Findings By */
+            findings_by?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Case Opened At */
+            case_opened_at?: string | null;
             /**
              * Decided At
              * Format: date-time
@@ -1357,8 +1567,8 @@ export interface components {
          *
          *     A closed alert is a workflow fact; a label is an evidential one. Keeping
          *     them apart means INCONCLUSIVE is expressible -- a case can be closed
-         *     without becoming a training example, which is exactly what you want when
-         *     the analyst genuinely could not tell.
+         *     without producing a label, which is exactly what you want when the analyst
+         *     genuinely could not tell.
          * @enum {string}
          */
         FinalLabel: "CONFIRMED_FRAUD" | "FALSE_POSITIVE" | "INCONCLUSIVE";
@@ -1383,6 +1593,113 @@ export interface components {
          * @enum {string}
          */
         LabelConfidence: "LOW" | "MEDIUM" | "HIGH";
+        /**
+         * LabelledFeedbackOut
+         * @description A concluded verdict and its curation state.
+         */
+        LabelledFeedbackOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Anchor Alert Id */
+            anchor_alert_id?: string | null;
+            /** Score Id */
+            score_id?: string | null;
+            /** Transaction Id */
+            transaction_id?: string | null;
+            /**
+             * Alert Count
+             * @default 1
+             */
+            alert_count: number;
+            final_label: components["schemas"]["FinalLabel"];
+            confidence: components["schemas"]["LabelConfidence"];
+            model_agreement: components["schemas"]["ModelAgreement"];
+            /** Fraud Typology */
+            fraud_typology?: string | null;
+            /** Decision Drivers */
+            decision_drivers?: string[];
+            /** Missing Signals */
+            missing_signals?: string[];
+            /** Notes */
+            notes?: string | null;
+            /** Analyst Findings */
+            analyst_findings?: string | null;
+            /** Reviewer User Id */
+            reviewer_user_id?: string | null;
+            /** Findings By */
+            findings_by?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Case Opened At */
+            case_opened_at?: string | null;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** Model Version */
+            model_version?: string | null;
+            /** Risk Engine Version */
+            risk_engine_version?: string | null;
+            /** Original Risk Score */
+            original_risk_score?: number | null;
+            /** Original Model Score */
+            original_model_score?: number | null;
+            /** Original Rule Score */
+            original_rule_score?: number | null;
+            /** Original Anomaly Score */
+            original_anomaly_score?: number | null;
+            /** Original Network Score */
+            original_network_score?: number | null;
+            /** Original Triggered Rules */
+            original_triggered_rules?: unknown[];
+            /** Case Title */
+            case_title?: string | null;
+            /** Case Status */
+            case_status?: string | null;
+            /** External Ref */
+            external_ref?: string | null;
+            /** Team */
+            team: string;
+            curation_status: components["schemas"]["CurationStatus"];
+            /** Curation Note */
+            curation_note?: string | null;
+            /** Curated By */
+            curated_by?: string | null;
+            /** Curated At */
+            curated_at?: string | null;
+            /**
+             * Batch Count
+             * @default 0
+             */
+            batch_count: number;
+        };
+        /**
+         * LabelledFeedbackPatch
+         * @description What a supervisor may change on a labelled feedback record.
+         */
+        LabelledFeedbackPatch: {
+            curation_status?: components["schemas"]["CurationStatus"] | null;
+            /** Curation Note */
+            curation_note?: string | null;
+            confidence?: components["schemas"]["LabelConfidence"] | null;
+            /** Fraud Typology */
+            fraud_typology?: string | null;
+            /** Decision Drivers */
+            decision_drivers?: string[] | null;
+            /** Missing Signals */
+            missing_signals?: string[] | null;
+            /** Notes */
+            notes?: string | null;
+        };
         /**
          * ModelAgreement
          * @description Did the investigator's conclusion match what the engine said?
@@ -1488,6 +1805,24 @@ export interface components {
             /** Page Size */
             page_size: number;
         };
+        /** Page[ExportBatchOut] */
+        Page_ExportBatchOut_: {
+            /** Items */
+            items: components["schemas"]["ExportBatchOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Page Size */
+            page_size: number;
+        };
+        /** Page[ExportBatchRecordOut] */
+        Page_ExportBatchRecordOut_: {
+            /** Items */
+            items: components["schemas"]["ExportBatchRecordOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Page Size */
+            page_size: number;
+        };
         /** Page[FeedbackExportItem] */
         Page_FeedbackExportItem_: {
             /** Items */
@@ -1497,28 +1832,10 @@ export interface components {
             /** Page Size */
             page_size: number;
         };
-        /** Page[TrainingRecordOut] */
-        Page_TrainingRecordOut_: {
+        /** Page[LabelledFeedbackOut] */
+        Page_LabelledFeedbackOut_: {
             /** Items */
-            items: components["schemas"]["TrainingRecordOut"][];
-            /** Next Cursor */
-            next_cursor?: string | null;
-            /** Page Size */
-            page_size: number;
-        };
-        /** Page[TrainingRunOut] */
-        Page_TrainingRunOut_: {
-            /** Items */
-            items: components["schemas"]["TrainingRunOut"][];
-            /** Next Cursor */
-            next_cursor?: string | null;
-            /** Page Size */
-            page_size: number;
-        };
-        /** Page[TrainingRunRecordOut] */
-        Page_TrainingRunRecordOut_: {
-            /** Items */
-            items: components["schemas"]["TrainingRunRecordOut"][];
+            items: components["schemas"]["LabelledFeedbackOut"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Page Size */
@@ -1726,218 +2043,6 @@ export interface components {
             /** Scopes */
             scopes: string[];
         };
-        /**
-         * TrainingRecordOut
-         * @description A concluded verdict, viewed as a candidate for training.
-         */
-        TrainingRecordOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Case Id
-             * Format: uuid
-             */
-            case_id: string;
-            /** Anchor Alert Id */
-            anchor_alert_id?: string | null;
-            /** Score Id */
-            score_id?: string | null;
-            /** Transaction Id */
-            transaction_id?: string | null;
-            /**
-             * Alert Count
-             * @default 1
-             */
-            alert_count: number;
-            final_label: components["schemas"]["FinalLabel"];
-            confidence: components["schemas"]["LabelConfidence"];
-            model_agreement: components["schemas"]["ModelAgreement"];
-            /** Fraud Typology */
-            fraud_typology?: string | null;
-            /** Decision Drivers */
-            decision_drivers?: string[];
-            /** Missing Signals */
-            missing_signals?: string[];
-            /** Notes */
-            notes?: string | null;
-            /** Reviewer User Id */
-            reviewer_user_id?: string | null;
-            /** Alert Opened At */
-            alert_opened_at?: string | null;
-            /**
-             * Decided At
-             * Format: date-time
-             */
-            decided_at: string;
-            /** Model Version */
-            model_version?: string | null;
-            /** Risk Engine Version */
-            risk_engine_version?: string | null;
-            /** Original Risk Score */
-            original_risk_score?: number | null;
-            /** Original Model Score */
-            original_model_score?: number | null;
-            /** Original Rule Score */
-            original_rule_score?: number | null;
-            /** Original Anomaly Score */
-            original_anomaly_score?: number | null;
-            /** Original Network Score */
-            original_network_score?: number | null;
-            /** Original Triggered Rules */
-            original_triggered_rules?: unknown[];
-            /** Case Title */
-            case_title?: string | null;
-            /** Case Status */
-            case_status?: string | null;
-            /** External Ref */
-            external_ref?: string | null;
-            /** Team */
-            team: string;
-            training_status: components["schemas"]["TrainingStatus"];
-            /** Training Note */
-            training_note?: string | null;
-            /** Training Reviewed By */
-            training_reviewed_by?: string | null;
-            /** Training Reviewed At */
-            training_reviewed_at?: string | null;
-            /**
-             * Run Count
-             * @default 0
-             */
-            run_count: number;
-        };
-        /**
-         * TrainingRecordPatch
-         * @description What a supervisor may change on a training record.
-         */
-        TrainingRecordPatch: {
-            training_status?: components["schemas"]["TrainingStatus"] | null;
-            /** Training Note */
-            training_note?: string | null;
-            confidence?: components["schemas"]["LabelConfidence"] | null;
-            /** Fraud Typology */
-            fraud_typology?: string | null;
-            /** Decision Drivers */
-            decision_drivers?: string[] | null;
-            /** Missing Signals */
-            missing_signals?: string[] | null;
-            /** Notes */
-            notes?: string | null;
-        };
-        /** TrainingRunCreate */
-        TrainingRunCreate: {
-            /** Name */
-            name: string;
-            /** Notes */
-            notes?: string | null;
-            /** Record Ids */
-            record_ids: string[];
-        };
-        /** TrainingRunOut */
-        TrainingRunOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Notes */
-            notes?: string | null;
-            status: components["schemas"]["TrainingRunStatus"];
-            /** Requested By */
-            requested_by?: string | null;
-            /**
-             * Requested At
-             * Format: date-time
-             */
-            requested_at: string;
-            /** Started At */
-            started_at?: string | null;
-            /** Finished At */
-            finished_at?: string | null;
-            /** Record Count */
-            record_count: number;
-            /** Label Counts */
-            label_counts?: {
-                [key: string]: number;
-            };
-            /** Base Model Version */
-            base_model_version?: string | null;
-            /** Executor */
-            executor?: string | null;
-            /** Result Model Version */
-            result_model_version?: string | null;
-            /** Metrics */
-            metrics?: {
-                [key: string]: unknown;
-            } | null;
-            /** Error */
-            error?: string | null;
-            /** Warnings */
-            warnings?: string[];
-        };
-        /**
-         * TrainingRunPatch
-         * @description The ML service reporting progress on a run it is executing.
-         */
-        TrainingRunPatch: {
-            status: components["schemas"]["TrainingRunStatus"];
-            /** Result Model Version */
-            result_model_version?: string | null;
-            /** Metrics */
-            metrics?: {
-                [key: string]: unknown;
-            } | null;
-            /** Error */
-            error?: string | null;
-        };
-        /**
-         * TrainingRunRecordOut
-         * @description One verdict exactly as it was frozen into a run.
-         */
-        TrainingRunRecordOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Feedback Id */
-            feedback_id?: string | null;
-            /** Case Id */
-            case_id?: string | null;
-            /** Final Label */
-            final_label: string;
-            /** Snapshot */
-            snapshot: {
-                [key: string]: unknown;
-            };
-        };
-        /**
-         * TrainingRunStatus
-         * @description Lifecycle of a supervisor-requested training run.
-         *
-         *     QUEUED is set by the supervisor. RUNNING, COMPLETED and FAILED are reported
-         *     by the ML service, which is what actually trains. CANCELLED is only reachable
-         *     from QUEUED: a run already executing has to finish or fail on its own terms.
-         * @enum {string}
-         */
-        TrainingRunStatus: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
-        /**
-         * TrainingStatus
-         * @description Whether a verdict may be used to train a model.
-         *
-         *     A concluded case is not automatically training data. A supervisor reviews
-         *     each verdict and decides: CANDIDATE (not yet reviewed), APPROVED (use it),
-         *     EXCLUDED (do not, with a reason). Keeping that a human decision is the
-         *     governance boundary between an operational verdict and a change to the
-         *     thing making the decisions.
-         * @enum {string}
-         */
-        TrainingStatus: "CANDIDATE" | "APPROVED" | "EXCLUDED";
         /** TransactionCreate */
         TransactionCreate: {
             /** External Ref */
@@ -3070,6 +3175,26 @@ export interface operations {
             };
         };
     };
+    user_directory_v1_users_directory_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryUserOut"][];
+                };
+            };
+        };
+    };
     deactivate_user_v1_users__user_id__deactivate_post: {
         parameters: {
             query?: never;
@@ -3143,6 +3268,7 @@ export interface operations {
                 decided_from?: string | null;
                 decided_to?: string | null;
                 include_inconclusive?: boolean;
+                curation_status?: components["schemas"]["CurationStatus"] | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -3172,10 +3298,10 @@ export interface operations {
             };
         };
     };
-    list_training_records_v1_training_records_get: {
+    list_labelled_feedback_v1_labelled_feedback_records_get: {
         parameters: {
             query?: {
-                training_status?: components["schemas"]["TrainingStatus"] | null;
+                curation_status?: components["schemas"]["CurationStatus"] | null;
                 final_label?: components["schemas"]["FinalLabel"] | null;
                 cursor?: string | null;
                 limit?: number;
@@ -3192,7 +3318,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_TrainingRecordOut_"];
+                    "application/json": components["schemas"]["Page_LabelledFeedbackOut_"];
                 };
             };
             /** @description Validation Error */
@@ -3206,7 +3332,7 @@ export interface operations {
             };
         };
     };
-    get_training_record_v1_training_records__record_id__get: {
+    get_labelled_feedback_v1_labelled_feedback_records__record_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3223,7 +3349,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRecordOut"];
+                    "application/json": components["schemas"]["LabelledFeedbackOut"];
                 };
             };
             /** @description Validation Error */
@@ -3237,7 +3363,7 @@ export interface operations {
             };
         };
     };
-    patch_training_record_v1_training_records__record_id__patch: {
+    curate_labelled_feedback_v1_labelled_feedback_records__record_id__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -3248,7 +3374,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TrainingRecordPatch"];
+                "application/json": components["schemas"]["LabelledFeedbackPatch"];
             };
         };
         responses: {
@@ -3258,7 +3384,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRecordOut"];
+                    "application/json": components["schemas"]["LabelledFeedbackOut"];
                 };
             };
             /** @description Validation Error */
@@ -3272,10 +3398,10 @@ export interface operations {
             };
         };
     };
-    list_training_runs_v1_training_runs_get: {
+    list_export_batches_v1_labelled_feedback_batches_get: {
         parameters: {
             query?: {
-                status?: components["schemas"]["TrainingRunStatus"] | null;
+                status?: components["schemas"]["ExportBatchStatus"] | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -3291,7 +3417,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_TrainingRunOut_"];
+                    "application/json": components["schemas"]["Page_ExportBatchOut_"];
                 };
             };
             /** @description Validation Error */
@@ -3305,7 +3431,7 @@ export interface operations {
             };
         };
     };
-    create_training_run_v1_training_runs_post: {
+    create_export_batch_v1_labelled_feedback_batches_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3314,7 +3440,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TrainingRunCreate"];
+                "application/json": components["schemas"]["ExportBatchCreate"];
             };
         };
         responses: {
@@ -3324,7 +3450,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRunOut"];
+                    "application/json": components["schemas"]["ExportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -3338,12 +3464,12 @@ export interface operations {
             };
         };
     };
-    get_training_run_v1_training_runs__run_id__get: {
+    get_export_batch_v1_labelled_feedback_batches__batch_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                batch_id: string;
             };
             cookie?: never;
         };
@@ -3355,7 +3481,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRunOut"];
+                    "application/json": components["schemas"]["ExportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -3369,18 +3495,18 @@ export interface operations {
             };
         };
     };
-    report_training_run_v1_training_runs__run_id__patch: {
+    report_export_batch_v1_labelled_feedback_batches__batch_id__patch: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                batch_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TrainingRunPatch"];
+                "application/json": components["schemas"]["ExportBatchPatch"];
             };
         };
         responses: {
@@ -3390,7 +3516,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRunOut"];
+                    "application/json": components["schemas"]["ExportBatchOut"];
                 };
             };
             /** @description Validation Error */
@@ -3404,7 +3530,7 @@ export interface operations {
             };
         };
     };
-    list_training_run_records_v1_training_runs__run_id__records_get: {
+    list_export_batch_records_v1_labelled_feedback_batches__batch_id__records_get: {
         parameters: {
             query?: {
                 cursor?: string | null;
@@ -3412,7 +3538,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                run_id: string;
+                batch_id: string;
             };
             cookie?: never;
         };
@@ -3424,7 +3550,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_TrainingRunRecordOut_"];
+                    "application/json": components["schemas"]["Page_ExportBatchRecordOut_"];
                 };
             };
             /** @description Validation Error */
@@ -3438,12 +3564,46 @@ export interface operations {
             };
         };
     };
-    cancel_training_run_v1_training_runs__run_id__cancel_post: {
+    download_export_batch_v1_labelled_feedback_batches__batch_id__download_get: {
+        parameters: {
+            query?: {
+                format?: "csv" | "jsonl";
+            };
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The frozen records as a file attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                    "application/x-ndjson": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_export_batch_v1_labelled_feedback_batches__batch_id__cancel_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                batch_id: string;
             };
             cookie?: never;
         };
@@ -3455,7 +3615,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingRunOut"];
+                    "application/json": components["schemas"]["ExportBatchOut"];
                 };
             };
             /** @description Validation Error */

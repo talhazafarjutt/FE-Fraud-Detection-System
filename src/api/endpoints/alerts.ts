@@ -50,7 +50,7 @@ export async function patchAlert(alertId: string, patch: AlertPatch): Promise<Al
    * The verdict moved from the alert to the case: the deployed API rejects a
    * `feedback` block on this endpoint with 422 "One or more fields are
    * invalid." (verified against production). One scheme gets one judgement,
-   * because a verdict per alert would emit several correlated training labels
+   * because a verdict per alert would emit several correlated labels
    * for a single fraud event.
    *
    * The replacement is `PATCH /v1/cases/{id}`, which does not exist yet —

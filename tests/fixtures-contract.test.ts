@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { alertDetailSchema, alertPageSchema, alertSchema } from '@/api/schemas/alerts';
 import { transactionSchema } from '@/api/schemas/transactions';
 import { userListSchema } from '@/api/schemas/users';
+import { RISK_THRESHOLDS, bandFor, riskDisplay } from '@/lib/risk';
 import {
   ALERT_FIXTURES,
   TRANSACTION_FIXTURES,
@@ -52,7 +53,8 @@ describe('MSW fixtures satisfy the real response schemas', () => {
     const severities = new Set(ALERT_FIXTURES.map((a) => a.severity));
     const statuses = new Set(ALERT_FIXTURES.map((a) => a.status));
 
-    expect([...severities].sort()).toEqual(['CRITICAL', 'HIGH', 'LOW', 'MEDIUM']);
+    // No LOW: an alert only exists at HIGH risk or on network evidence.
+    expect([...severities].sort()).toEqual(['CRITICAL', 'HIGH', 'MEDIUM']);
     expect([...statuses].sort()).toEqual([
       'CLOSED',
       'CONFIRMED_FRAUD',
@@ -61,6 +63,29 @@ describe('MSW fixtures satisfy the real response schemas', () => {
       'IN_REVIEW',
       'OPEN',
     ]);
+  });
+
+  it('raises alerts exactly where the backend would', () => {
+    for (const alert of ALERT_FIXTURES) {
+      const score = alert.risk_score ?? -1;
+      const networked = Boolean(alert.network?.evidence?.length);
+      expect(Number.isInteger(score), `${alert.id} risk_score is not an integer`).toBe(true);
+      expect(score >= RISK_THRESHOLDS.HIGH || networked, `${alert.id} would not alert`).toBe(true);
+      const expected =
+        score >= RISK_THRESHOLDS.CRITICAL
+          ? 'CRITICAL'
+          : score >= RISK_THRESHOLDS.HIGH
+            ? 'HIGH'
+            : 'MEDIUM';
+      expect(alert.severity).toBe(expected);
+    }
+  });
+
+  it('never shows a number from a higher band than its chip', () => {
+    for (const alert of ALERT_FIXTURES) {
+      const shown = riskDisplay(alert.risk_score, alert.fraud_probability);
+      expect(shown && bandFor(shown.value)).toBe(shown?.band);
+    }
   });
 
   it('spans both teams, which the live seed does not', () => {

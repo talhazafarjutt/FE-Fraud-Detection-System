@@ -6,7 +6,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Button, EmptyState, Eyebrow, Skeleton } from '@/components/primitives';
 import { SkippedRowsNotice } from '@/components/ApiStates';
 import { errorStatus } from '@/lib/problem';
-import { riskDisplay } from '@/lib/risk';
+import { formatRiskScore, riskDisplay } from '@/lib/risk';
 import { AlertFilterBar } from './AlertFilterBar';
 import { AlertRow } from './AlertRow';
 import { prefetchAlert, useAlertsQuery } from './queries';
@@ -133,7 +133,7 @@ export default function AlertQueuePage() {
           <Tile label="High or critical" value={isPending ? null : String(stats.severe)} />
           <Tile
             label="Median risk"
-            value={isPending ? null : stats.median === null ? '—' : String(Math.round(stats.median))}
+            value={isPending ? null : stats.median === null ? '—' : formatRiskScore(stats.median)}
             
           />
         </dl>

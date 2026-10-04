@@ -7,7 +7,7 @@ import { isoDateTime, looseAlertSeverity, looseAlertStatus, uuid } from './commo
  * A criminal scheme produces many alerts: one mule ring in the seeded data
  * raises 17 of them and exactly 1 case. Without the grouping an analyst works
  * the same ring seventeen times and a supervisor signs off seventeen times, and
- * retraining gets seventeen correlated labels for one event.
+ * the labelled feedback gets seventeen correlated labels for one event.
  *
  * `alert_count` is therefore the most important number on the screen — it is
  * the only thing that makes the grouping visible.
@@ -57,8 +57,13 @@ export const caseFeedbackSchema = z
     decision_drivers: z.array(z.string()).nullish(),
     missing_signals: z.array(z.string()).nullish(),
     notes: z.string().nullish(),
+    /** Copied from the case when it was concluded, with who wrote them and who held it. */
+    analyst_findings: z.string().nullish(),
+    findings_by: z.string().nullish(),
+    assigned_to: z.string().nullish(),
     reviewer_user_id: z.string().nullish(),
-    alert_opened_at: isoDateTime.nullish(),
+    /** When the case was opened — the start of the time-to-decision. */
+    case_opened_at: isoDateTime.nullish(),
     decided_at: isoDateTime,
     model_version: z.string().nullish(),
     risk_engine_version: z.string().nullish(),
@@ -84,9 +89,21 @@ export const caseSchema = z
     closed_at: isoDateTime.nullish(),
     /** Optional on the wire; a case with no count still renders as "1 alert". */
     alert_count: z.number().int().nullish(),
+    findings: z.string().nullish(),
+    findings_by: z.string().nullish(),
+    findings_at: isoDateTime.nullish(),
   })
   .passthrough();
 export type CaseRow = z.infer<typeof caseSchema>;
+
+/** Findings are frozen in these; the server answers 409 to an edit. */
+const FINDINGS_LOCKED_STATUSES = ['CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'CLOSED'] as const;
+
+export function findingsLocked(status: string): boolean {
+  return (FINDINGS_LOCKED_STATUSES as readonly string[]).includes(status);
+}
+
+export const FINDINGS_LIMIT = 5000;
 
 export const caseMemberAlertSchema = z
   .object({
@@ -118,7 +135,7 @@ export type CaseDetail = z.infer<typeof caseDetailSchema>;
  * is a 409.
  *
  * Nothing here is pre-filled anywhere in the UI. A pre-filled label is a guess
- * recorded as human judgement, and this record is training data.
+ * recorded as human judgement, and this record is labelled feedback.
  */
 export const feedbackInputSchema = z.object({
   final_label: finalLabelSchema,
@@ -134,7 +151,11 @@ export type FeedbackInput = z.infer<typeof feedbackInputSchema>;
 export interface CasePatchInput {
   status?: string;
   title?: string;
-  assigned_to?: string;
+  /** `null` unassigns. */
+  assigned_to?: string | null;
+  /** Only accepted alongside `status`; on its own the server answers 422. */
   note?: string;
+  /** `""` clears. */
+  findings?: string;
   feedback?: FeedbackInput;
 }

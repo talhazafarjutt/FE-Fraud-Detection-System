@@ -42,6 +42,22 @@ export function formatRelative(iso: string | null | undefined): string {
   return 'just now';
 }
 
+/** Whole seconds from `iso` until now; null when there is no usable timestamp. */
+export function secondsSince(iso: string | null | undefined, now: number = Date.now()): number | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.floor((now - at) / 1000));
+}
+
+/** A compact age: 34s, 12m, 5h, 3d. */
+export function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+}
+
 /** Short form of a UUID for dense table cells; full value stays in a title. */
 export function shortId(id: string | null | undefined): string {
   if (!id) return '—';

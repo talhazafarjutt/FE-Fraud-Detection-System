@@ -5,6 +5,7 @@ import { AppShell } from '@/components/AppShell';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RequireScope, ScopeLanding } from '@/auth/RequireScope';
 import { NotFound } from '@/components/NotFound';
+import { LEGACY_ROUTES } from './legacyRedirects';
 
 /**
  * Route-level code splitting, every lazy import wrapped by `lazyRoute` so a
@@ -37,9 +38,9 @@ const EntityDetailPage = lazyRoute('EntityDetailPage', () => import('@/features/
 const NetworkExplorerPage = lazyRoute('NetworkExplorerPage', () => import('@/features/network/NetworkExplorerPage'));
 const AuditLogPage = lazyRoute('AuditLogPage', () => import('@/features/audit/AuditLogPage'));
 
-// Training curation: supervisor-only review of verdicts before any model sees them.
-const TrainingPage = lazyRoute('TrainingPage', () => import('@/features/training/TrainingPage'));
-const TrainingRunPage = lazyRoute('TrainingRunPage', () => import('@/features/training/RunDetailPage'));
+// Labelled feedback: supervisor-only validation of verdicts before any of them leave the system.
+const LabelledFeedbackPage = lazyRoute('LabelledFeedbackPage', () => import('@/features/labelled-feedback/LabelledFeedbackPage'));
+const BatchDetailPage = lazyRoute('BatchDetailPage', () => import('@/features/labelled-feedback/BatchDetailPage'));
 
 const simulatorEnabled = import.meta.env.VITE_ENABLE_SIMULATOR === 'true';
 
@@ -91,12 +92,15 @@ export const APP_ROUTES: RouteSpec[] = [
   // and the nav item is absent for them entirely.
   { path: 'audit', element: guarded('audit:read', <AuditLogPage />, 'Audit log') },
   { path: 'users', element: guarded('users:manage', <UsersPage />, 'User administration') },
-  // training:manage is SUPERVISOR only. Choosing what the next model learns from
-  // is an oversight decision; analysts do not see this section at all.
-  { path: 'training', element: guarded('training:manage', <TrainingPage />, 'Training data') },
+  // feedback:review is SUPERVISOR only. Deciding which verdicts are exported as
+  // labels is an oversight decision; analysts do not see this section at all.
   {
-    path: 'training/runs/:runId',
-    element: guarded('training:manage', <TrainingRunPage />, 'Training run'),
+    path: 'labelled-feedback',
+    element: guarded('feedback:review', <LabelledFeedbackPage />, 'Labelled Feedback'),
+  },
+  {
+    path: 'labelled-feedback/batches/:batchId',
+    element: guarded('feedback:review', <BatchDetailPage />, 'Export batch'),
   },
   // Tree-shaken out entirely unless the env flag is on at build time.
   ...(SimulatorPage ? [{ path: 'simulator', element: guarded([], <SimulatorPage />, 'Simulator') }] : []),
@@ -110,6 +114,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <ScopeLanding /> },
       ...APP_ROUTES,
+      ...LEGACY_ROUTES,
       { path: '*', element: <NotFound /> },
     ],
   },

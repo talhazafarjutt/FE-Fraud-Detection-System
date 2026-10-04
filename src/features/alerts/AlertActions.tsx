@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { patchAlert } from '@/api/endpoints/alerts';
-import type { AlertDetail } from '@/api/schemas/alerts';
+import type { AlertDetail, AlertPatch } from '@/api/schemas/alerts';
 import type { AlertStatus } from '@/api/schemas/common';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/primitives';
@@ -9,6 +9,8 @@ import { useToasts } from '@/components/Toasts';
 import { isTerminalStatus } from '@/api/schemas/feedback';
 import { Link } from 'react-router-dom';
 import { titleCase } from '@/lib/format';
+import { describeFailure } from '@/lib/problem';
+import { AssigneePicker } from '@/features/users/AssigneePicker';
 import { alertKeys } from './queries';
 import { transitionsFor } from './stateMachine';
 
@@ -21,16 +23,16 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
 
   const [status, setStatus] = useState<AlertStatus | ''>('');
   const [note, setNote] = useState('');
-  const [assignee, setAssignee] = useState<string>('');
+  /** undefined = untouched; the picker shows the current assignee. */
+  const [assignee, setAssignee] = useState<string | null | undefined>(undefined);
   /**
    * A terminal status is a VERDICT, and a verdict belongs to the case, not to
    * one alert inside it.
    *
    * This endpoint rejects a feedback block with 422 — deliberately. One scheme
    * gets one judgement: concluding nine alerts separately would emit nine
-   * correlated training labels for a single fraud event and skew the next
-   * model. `PATCH /v1/cases/{id}` is where the verdict goes, behind the
-   * required feedback form.
+   * correlated labels for a single fraud event. `PATCH /v1/cases/{id}` is
+   * where the verdict goes, behind the required feedback form.
    *
    * So the move is blocked here and the user is sent to the case instead.
    */
@@ -40,34 +42,56 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
   const canAssign = hasScope('alerts:assign');
   const canUpdate = hasScope('alerts:update');
 
+  const currentAssignee = alert.assigned_to ?? null;
+  const pickedAssignee = assignee === undefined ? currentAssignee : assignee;
+  const assigneeChanged = canAssign && pickedAssignee !== currentAssignee;
+
   const selected = options.find((option) => option.to === status);
   const blockedReason = selected && !selected.allowed ? selected.reason : undefined;
 
   const mutation = useMutation({
-    mutationFn: () =>
-      patchAlert(alert.id, {
-        ...(status ? { status } : {}),
-        ...(canAssign && assignee !== '' ? { assigned_to: assignee || null } : {}),
-        ...(note.trim() ? { note: note.trim() } : {}),
-      }),
-    onSuccess: (updated) => {
-      push({
-        tone: 'success',
-        title: 'Case updated',
-        detail: `Status is now ${updated.status.replace(/_/g, ' ')}.`,
-      });
+    mutationFn: (patch: AlertPatch) => patchAlert(alert.id, patch),
+    onSuccess: (updated, sent) => {
+      // A note on its own is recorded as a trail entry; the status did not move.
+      push(
+        sent.status
+          ? {
+              tone: 'success',
+              title: 'Case updated',
+              detail: `Status is now ${updated.status.replace(/_/g, ' ')}.${
+                sent.note ? ' Note added to the case trail.' : ''
+              }`,
+            }
+          : sent.note
+            ? { tone: 'success', title: 'Note recorded', detail: 'Added to the case trail.' }
+            : { tone: 'success', title: 'Case updated', detail: 'Assignment saved.' },
+      );
+      // Write the answer into the cache first, or the picker shows the old
+      // assignee until the refetch lands. Only the fields the PATCH changed:
+      // the response is the summary shape, not the detail.
+      queryClient.setQueryData<AlertDetail>(alertKeys.detail(alert.id), (current) =>
+        current && { ...current, status: updated.status, assigned_to: updated.assigned_to },
+      );
       setStatus('');
       setNote('');
-      setAssignee('');
+      setAssignee(undefined);
       // Refetch the detail so the case trail gains its entry immediately, and
       // invalidate the queue so the row reflects the new status.
       void queryClient.invalidateQueries({ queryKey: alertKeys.detail(alert.id) });
       void queryClient.invalidateQueries({ queryKey: ['alerts', 'list'] });
     },
-    onError: (error) => pushError(error, 'Could not update the case'),
+    onError: (error) => {
+      // A rejected assignee is shown under the picker instead.
+      if (describeFailure(error).fieldErrors?.some((e) => e.field === 'assigned_to')) return;
+      pushError(error, 'Could not update the case');
+    },
   });
 
-  const nothingToSubmit = status === '' && note.trim() === '' && assignee === '';
+  const nothingToSubmit = status === '' && note.trim() === '' && !assigneeChanged;
+  const failure = mutation.error ? describeFailure(mutation.error) : null;
+  const assigneeError = failure?.fieldErrors?.some((e) => e.field === 'assigned_to')
+    ? failure.detail
+    : undefined;
   const submitDisabled =
     !canUpdate ||
     nothingToSubmit ||
@@ -123,12 +147,16 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
             <label htmlFor="assignee" className="mono-label mb-2 block text-ink-3">
               Assign to
             </label>
-            <input
+            <AssigneePicker
               id="assignee"
-              className="field"
-              placeholder="ANALYST USER ID, OR BLANK TO UNASSIGN"
-              value={assignee}
-              onChange={(event) => setAssignee(event.target.value)}
+              team={alert.team}
+              value={pickedAssignee}
+              onChange={(next) => {
+                mutation.reset();
+                setAssignee(next);
+              }}
+              disabled={mutation.isPending}
+              error={assigneeError}
             />
           </div>
         ) : (
@@ -161,7 +189,7 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
             <p className="mb-3 text-[13px] text-ink-2">
               {titleCase(status)} is a judgement about the whole scheme, not about this one
               alert. It is recorded once, on the investigation, with the label, confidence and
-              model agreement that make it usable as training data.
+              model agreement that make it usable as labelled feedback.
             </p>
             {alert.case_id ? (
               <Link to={`/cases/${alert.case_id}`} className="btn btn--ghost">
@@ -177,7 +205,13 @@ export function AlertActions({ alert }: { alert: AlertDetail }) {
         ) : null}
 
         <Button
-          onClick={() => mutation.mutate()}
+          onClick={() =>
+            mutation.mutate({
+              ...(status ? { status } : {}),
+              ...(assigneeChanged ? { assigned_to: pickedAssignee } : {}),
+              ...(note.trim() ? { note: note.trim() } : {}),
+            })
+          }
           disabled={submitDisabled}
           className="w-full"
           title={needsVerdict ? 'A verdict is recorded on the investigation.' : blockedReason}

@@ -2,7 +2,8 @@ import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { Alert } from '@/api/schemas/alerts';
 import { SeverityChip, StatusChip } from '@/components/Chips';
-import { formatAbsolute, formatRelative, shortId } from '@/lib/format';
+import { UserName } from '@/features/users/UserName';
+import { formatAbsolute, formatRelative } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
 import { BAND_HEX, riskDisplay } from '@/lib/risk';
 
@@ -92,12 +93,11 @@ export const AlertRow = memo(function AlertRow({ alert, onHover }: Props) {
       </td>
 
       <td className="py-3 pr-4">
-        <span
+        <UserName
+          id={alert.assigned_to}
+          empty="Unassigned"
           className="font-mono text-[11px] uppercase tracking-tag text-ink-3"
-          title={alert.assigned_to ?? 'Unassigned'}
-        >
-          {alert.assigned_to ? shortId(alert.assigned_to) : 'Unassigned'}
-        </span>
+        />
       </td>
 
       <td className="py-3 text-right">

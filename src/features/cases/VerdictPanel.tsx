@@ -1,7 +1,8 @@
 import type { CaseFeedback } from '@/api/schemas/cases';
 import { Eyebrow, Panel, Tag, cx } from '@/components/primitives';
+import { PersonFact, UserName } from '@/features/users/UserName';
 import { formatAbsolute, shortId } from '@/lib/format';
-import { bandForScore, BAND_HEX } from '@/lib/risk';
+import { bandForScore, BAND_HEX, formatRiskScore } from '@/lib/risk';
 
 /**
  * The recorded verdict.
@@ -58,7 +59,7 @@ export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
         <div className="text-right">
           <p className="font-mono text-[12px] text-ink-2">{formatAbsolute(feedback.decided_at)}</p>
           <p className="font-mono text-[11px] text-ink-3">
-            by {shortId(feedback.reviewer_user_id)}
+            by <UserName id={feedback.reviewer_user_id} />
           </p>
         </div>
       </div>
@@ -70,6 +71,20 @@ export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
         </strong>
         . {AGREEMENT_COPY[String(feedback.model_agreement)] ?? ''}
       </p>
+
+      <dl className="mb-6 grid gap-px border border-rule bg-rule sm:grid-cols-2">
+        <PersonFact label="Assigned analyst" id={feedback.assigned_to} empty="Unassigned" />
+        <PersonFact label="Findings recorded by" id={feedback.findings_by} />
+      </dl>
+
+      <div className="mb-6">
+        <Eyebrow>Analyst findings</Eyebrow>
+        {feedback.analyst_findings ? (
+          <p className="max-w-3xl whitespace-pre-wrap text-ink-2">{feedback.analyst_findings}</p>
+        ) : (
+          <p className="text-ink-3">None recorded when the case was concluded.</p>
+        )}
+      </div>
 
       <div className="mb-6 border border-rule">
         <div className="border-b border-rule bg-paper px-4 py-3">
@@ -87,7 +102,7 @@ export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
               }
             >
               {feedback.original_risk_score != null
-                ? Math.round(feedback.original_risk_score)
+                ? formatRiskScore(feedback.original_risk_score)
                 : '—'}
             </p>
           </div>
@@ -95,7 +110,7 @@ export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
             <div key={name} className="bg-surface p-4">
               <p className="mono-label text-ink-3">{name}</p>
               <p className="font-mono text-[18px] tabular-nums text-ink-2">
-                {value != null ? Math.round(value) : '—'}
+                {value != null ? formatRiskScore(value) : '—'}
               </p>
             </div>
           ))}

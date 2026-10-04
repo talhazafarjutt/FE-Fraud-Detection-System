@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { tokenStore } from '@/auth/tokenStore';
 import { Button, Eyebrow, Skeleton } from '@/components/primitives';
 import { errorStatus } from '@/lib/problem';
+import { formatAge, secondsSince } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
 import { riskDisplay } from '@/lib/risk';
 import {
@@ -32,6 +33,7 @@ export default function DashboardPage() {
   const label = windowLabel(windowId);
 
   const metrics = useMetricsQuery(query);
+  const oldestPending = secondsSince(metrics.data?.queue_health.oldest_pending_at);
   const queue = useDashboardAlerts();
 
   const isSupervisor = hasScope('alerts:read:all');
@@ -125,11 +127,7 @@ export default function DashboardPage() {
           <Tile
             label="Awaiting score"
             value={metrics.isPending ? null : String(metrics.data?.queue_health.pending_scores ?? 0)}
-            detail={
-              metrics.data?.queue_health.oldest_pending_seconds
-                ? `Oldest ${metrics.data.queue_health.oldest_pending_seconds}s`
-                : undefined
-            }
+            detail={oldestPending === null ? undefined : `Oldest ${formatAge(oldestPending)}`}
             window="if this climbs, the worker is behind"
             tone={(metrics.data?.queue_health.pending_scores ?? 0) > 0 ? 'warn' : 'normal'}
           />
