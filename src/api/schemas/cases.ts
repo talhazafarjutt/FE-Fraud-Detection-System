@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateTime, looseAlertSeverity, looseAlertStatus, uuid } from './common';
+import { layerFactsByLayerSchema, layerFindingsSchema } from './layers';
 
 /**
  * Cases — the unit of human judgement.
@@ -33,6 +34,7 @@ export const triggeredRuleSchema = z
     rule: z.string(),
     severity: z.string().nullish(),
     description: z.string().nullish(),
+    source: z.string().nullish(),
   })
   .passthrough();
 export type TriggeredRule = z.infer<typeof triggeredRuleSchema>;
@@ -73,6 +75,8 @@ export const caseFeedbackSchema = z
     original_anomaly_score: z.number().nullish(),
     original_network_score: z.number().nullish(),
     original_triggered_rules: z.array(triggeredRuleSchema).nullish(),
+    /** What each active layer added or set aside on the anchoring score. */
+    original_layer_findings: layerFindingsSchema.optional(),
   })
   .passthrough();
 export type CaseFeedback = z.infer<typeof caseFeedbackSchema>;
@@ -113,6 +117,7 @@ export const caseMemberAlertSchema = z
     status: looseAlertStatus,
     severity: looseAlertSeverity,
     opened_at: isoDateTime,
+    layer_facts: layerFactsByLayerSchema.optional(),
   })
   .passthrough();
 export type CaseMemberAlert = z.infer<typeof caseMemberAlertSchema>;

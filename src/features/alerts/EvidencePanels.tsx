@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { AlertDetail, DecisionReason, Signals, TriggeredRule } from '@/api/schemas/alerts';
 import { cx } from '@/components/primitives';
+import { layerLabel } from '@/features/layers/facts';
 import { titleCase } from '@/lib/format';
 import { formatRiskScore } from '@/lib/risk';
 
@@ -83,6 +84,23 @@ export function SignalBars({ signals }: { signals: Signals | null }) {
   );
 }
 
+export function RuleSeverity({ severity }: { severity: string | null | undefined }) {
+  return (
+    <span
+      className={cx(
+        'inline-flex border px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag',
+        severity === 'HIGH' || severity === 'CRITICAL'
+          ? 'border-carmine text-carmine'
+          : severity === 'MEDIUM'
+            ? 'border-amber text-amber'
+            : 'border-rule text-ink-3',
+      )}
+    >
+      {severity ?? 'RULE'}
+    </span>
+  );
+}
+
 export function TriggeredRules({ rules }: { rules: readonly TriggeredRule[] }) {
   if (rules.length === 0) return <Empty>No rules fired on this alert.</Empty>;
 
@@ -91,24 +109,17 @@ export function TriggeredRules({ rules }: { rules: readonly TriggeredRule[] }) {
       <ul className="divide-y divide-rule-soft">
         {rules.map((rule) => (
           <li key={rule.rule} className="flex flex-wrap items-start gap-4 p-5">
-            <span
-              className={cx(
-                'inline-flex border px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag',
-                rule.severity === 'HIGH' || rule.severity === 'CRITICAL'
-                  ? 'border-carmine text-carmine'
-                  : rule.severity === 'MEDIUM'
-                    ? 'border-amber text-amber'
-                    : 'border-rule text-ink-3',
-              )}
-            >
-              {rule.severity ?? 'RULE'}
-            </span>
+            <RuleSeverity severity={rule.severity} />
             <div className="min-w-0 flex-1">
               <p className="font-mono text-[12px] text-ink">{rule.rule}</p>
               {rule.description ? (
                 <p className="mt-1 text-[14px] text-ink-2">{rule.description}</p>
               ) : null}
             </div>
+            {/* Set by core on every rule a layer added; absent on the engine's own. */}
+            {rule.source ? (
+              <span className="mono-label text-ink-3">Added by {layerLabel(rule.source)} layer</span>
+            ) : null}
           </li>
         ))}
       </ul>

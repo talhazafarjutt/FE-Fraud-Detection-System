@@ -10,12 +10,20 @@ import { cx } from '@/components/primitives';
  * removes it and the same diagram still says everything it needs to, because
  * every stage carries its text.
  */
+export interface SubStep {
+  title: string;
+  body: string;
+}
+
 export function FlowPipeline({
   scopes,
   counts,
+  substeps = {},
 }: {
   scopes: readonly string[];
   counts: Partial<Record<Stage['id'], string>>;
+  /** Extra steps drawn inside a stage, e.g. an active layer under Detection. */
+  substeps?: Partial<Record<Stage['id'], SubStep>>;
 }) {
   const main = STAGES.filter((s) => !s.branch);
   const branches = STAGES.filter((s) => s.branch);
@@ -30,6 +38,7 @@ export function FlowPipeline({
             lit={isLit(stage, scopes)}
             index={index + 1}
             {...(counts[stage.id] ? { count: counts[stage.id] as string } : {})}
+            {...(substeps[stage.id] ? { substep: substeps[stage.id] as SubStep } : {})}
           />
         ))}
       </ol>
@@ -67,12 +76,14 @@ function StageCard({
   index,
   count,
   branch,
+  substep,
 }: {
   stage: Stage;
   lit: boolean;
   index?: number;
   count?: string;
   branch?: boolean;
+  substep?: SubStep;
 }) {
   const body = (
     <>
@@ -90,6 +101,14 @@ function StageCard({
         ) : null}
       </div>
       <p className={cx('text-[13px]', lit ? 'text-ink-2' : 'text-ink-3')}>{stage.blurb}</p>
+      {substep ? (
+        <p className="mt-3 border-t border-rule-soft pt-3 text-[12px] text-ink-2">
+          <span className="mb-1 block font-mono text-[11px] uppercase tracking-label text-ultra">
+            ↳ {substep.title}
+          </span>
+          {substep.body}
+        </p>
+      ) : null}
       {!lit ? (
         <p className="mt-3 border-t border-rule-soft pt-3 text-[12px] text-ink-3">
           <span aria-hidden="true">🔒 </span>

@@ -9,6 +9,7 @@ import {
   type ModelAgreement,
 } from '@/api/schemas/cases';
 import { Button, Eyebrow, cx } from '@/components/primitives';
+import { useLayers } from '@/features/layers/useMeta';
 import { UserName } from '@/features/users/UserName';
 
 /**
@@ -238,13 +239,7 @@ export function ConcludeModal({
           </Group>
 
           <Group legend="Typology" hint="Optional. The shape of the scheme, e.g. MULE_RING.">
-            <input
-              className="field"
-              maxLength={64}
-              placeholder="MULE_RING"
-              value={typology}
-              onChange={(event) => setTypology(event.target.value)}
-            />
+            <TypologyInput value={typology} onChange={setTypology} placeholder="MULE_RING" />
           </Group>
 
           <Group
@@ -380,6 +375,44 @@ export function Choice({
       </span>
       {body ? <span className="mt-2 block text-[12px] text-ink-2">{body}</span> : null}
     </label>
+  );
+}
+
+/**
+ * Free text with suggestions from `GET /v1/meta` (core typologies plus each
+ * active layer's). The server accepts any value up to 64 characters, so a
+ * suggestion is never a constraint.
+ */
+export function TypologyInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  const listId = useId();
+  const { typologies } = useLayers();
+  return (
+    <>
+      <input
+        className="field"
+        maxLength={64}
+        aria-label="Typology"
+        {...(placeholder ? { placeholder } : {})}
+        {...(typologies.length > 0 ? { list: listId } : {})}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {typologies.length > 0 ? (
+        <datalist id={listId}>
+          {typologies.map((typology) => (
+            <option key={typology} value={typology} />
+          ))}
+        </datalist>
+      ) : null}
+    </>
   );
 }
 

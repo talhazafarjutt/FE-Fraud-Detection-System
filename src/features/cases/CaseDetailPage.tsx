@@ -15,6 +15,9 @@ import { transitionsFor } from '@/features/alerts/stateMachine';
 import { AuditTable } from '@/features/audit/AuditLogPage';
 import { AssigneePicker } from '@/features/users/AssigneePicker';
 import { UserName } from '@/features/users/UserName';
+import { distinctProductFacts, factsFromFindings } from '@/features/layers/facts';
+import { ActiveProductChip, ProductChip } from '@/features/layers/ProductChip';
+import { useLayers } from '@/features/layers/useMeta';
 import { ConcludeModal } from './ConcludeModal';
 import { FindingsPanel } from './FindingsPanel';
 import { VerdictPanel } from './VerdictPanel';
@@ -38,6 +41,7 @@ const VERDICT_LABELS: readonly FinalLabel[] = ['CONFIRMED_FRAUD', 'FALSE_POSITIV
 export default function CaseDetailPage() {
   const { caseId = '' } = useParams();
   const { scopes, hasScope } = useAuth();
+  const layers = useLayers();
   const toast = useToasts();
   const queryClient = useQueryClient();
   const [concluding, setConcluding] = useState(false);
@@ -176,6 +180,16 @@ export default function CaseDetailPage() {
   const triage = transitions.filter((t) => !VERDICT_LABELS.includes(t.to as FinalLabel));
   const patchError = patch.error ? describeFailure(patch.error).detail : undefined;
 
+  // Members first; the verdict's frozen findings cover a case whose list is empty.
+  const caseProducts = distinctProductFacts(
+    [
+      ...alerts.map((alert) => alert.layer_facts),
+      factsFromFindings(investigation.feedback?.original_layer_findings),
+    ],
+    layers.layers,
+    layers.products,
+  );
+
   return (
     <div className="space-y-8">
       <BackLink />
@@ -186,6 +200,17 @@ export default function CaseDetailPage() {
         hint={`${alertCount} alert${alertCount === 1 ? '' : 's'} grouped into one investigation. One scheme, one judgement — a verdict per alert would emit ${alertCount} correlated labels for a single event.`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            {caseProducts.slice(0, 3).map((entry) => (
+              <ProductChip
+                key={entry.text}
+                facts={entry.facts}
+                layer={entry.layer}
+                products={layers.products}
+              />
+            ))}
+            {caseProducts.length > 3 ? (
+              <span className="font-mono text-[11px] text-ink-3">+{caseProducts.length - 3}</span>
+            ) : null}
             <StatusChip status={String(investigation.status)} />
             <SeverityChip severity={String(investigation.severity)} />
           </div>
@@ -345,7 +370,10 @@ export default function CaseDetailPage() {
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-rule">
-                  {['Alert', 'Transaction', 'Status', 'Severity', 'Opened', ''].map((label, i) => (
+                  {(layers.hasProducts
+                    ? ['Alert', 'Transaction', 'Product', 'Status', 'Severity', 'Opened', '']
+                    : ['Alert', 'Transaction', 'Status', 'Severity', 'Opened', '']
+                  ).map((label, i) => (
                     <th
                       key={label || i}
                       className="px-4 py-3 font-mono text-[11px] uppercase tracking-label text-ink-3"
@@ -369,6 +397,11 @@ export default function CaseDetailPage() {
                     <td className="px-4 py-3 font-mono text-[12px] text-ink-2">
                       {shortId(alert.transaction_id)}
                     </td>
+                    {layers.hasProducts ? (
+                      <td className="px-4 py-3">
+                        <ActiveProductChip facts={alert.layer_facts} layers={layers} />
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3">
                       <StatusChip status={String(alert.status)} />
                     </td>

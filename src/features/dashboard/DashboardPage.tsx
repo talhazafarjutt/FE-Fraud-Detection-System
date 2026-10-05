@@ -18,8 +18,18 @@ import {
   TooFewPoints,
 } from './panels';
 import { ThresholdExplorer } from './ThresholdExplorer';
+import { IslamicProducts } from './IslamicProducts';
 import { FlowPanel } from '@/features/flow/FlowPanel';
-import { WINDOWS, type WindowId, useDashboardAlerts, useMetricsQuery, windowLabel, windowToQuery } from './queries';
+import { ISLAMIC_LAYER, useLayers } from '@/features/layers/useMeta';
+import {
+  WINDOWS,
+  type WindowId,
+  useDashboardAlerts,
+  useIslamicSummary,
+  useMetricsQuery,
+  windowLabel,
+  windowToQuery,
+} from './queries';
 
 const FlowChart = lazy(() => import('./FlowChart'));
 
@@ -35,6 +45,9 @@ export default function DashboardPage() {
   const metrics = useMetricsQuery(query);
   const oldestPending = secondsSince(metrics.data?.queue_health.oldest_pending_at);
   const queue = useDashboardAlerts();
+  const layers = useLayers();
+  const islamicOn = layers.isActive(ISLAMIC_LAYER);
+  const islamic = useIslamicSummary(islamicOn);
 
   const isSupervisor = hasScope('alerts:read:all');
   const me = session?.subject ?? null;
@@ -89,6 +102,7 @@ export default function DashboardPage() {
             onClick={() => {
               void metrics.refetch();
               void queue.refetch();
+              if (islamicOn) void islamic.refetch();
             }}
             disabled={metrics.isFetching || queue.isFetching}
           >
@@ -251,6 +265,24 @@ export default function DashboardPage() {
             )}
           </PanelSection>
         </>
+      ) : null}
+
+      {islamicOn ? (
+        <PanelSection
+          index={isSupervisor ? '08' : '04'}
+          title="Islamic products"
+          hint="Transactions, alerts and outcomes per product, and what each Islamic rule did. Not limited to the window above."
+        >
+          {islamic.isPending ? (
+            <Skeleton className="h-48 w-full" />
+          ) : islamic.isError ? (
+            <p className="border border-rule-soft px-6 py-8 text-ink-2">
+              The Islamic product summary could not be loaded.
+            </p>
+          ) : (
+            <IslamicProducts summary={islamic.data} products={layers.products} />
+          )}
+        </PanelSection>
       ) : null}
 
       <p className="border-t border-rule pt-6 font-mono text-[10px] uppercase tracking-tag text-ink-3">

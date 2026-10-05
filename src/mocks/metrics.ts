@@ -88,7 +88,7 @@ export function computeOverview({ alerts, transactions, bucket, from, to }: Metr
   const byRisk: Record<string, number> = { LOW: 0, MEDIUM: 0, HIGH: 0 };
   for (const t of tx) {
     const alert = alertByTx.get(t.id);
-    const band = bandFor((alert?.fraud_probability ?? 0) * 100);
+    const band = bandFor(alert?.risk_score ?? (alert?.fraud_probability ?? 0) * 100);
     // risk_level stops at HIGH; CRITICAL is an alert severity.
     const level = band === 'CRITICAL' ? 'HIGH' : band;
     byRisk[level] = (byRisk[level] ?? 0) + 1;

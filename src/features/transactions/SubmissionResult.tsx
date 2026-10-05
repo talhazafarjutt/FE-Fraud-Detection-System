@@ -4,6 +4,8 @@ import { BandChip, SeverityChip, StatusChip } from '@/components/Chips';
 import { Button, Eyebrow } from '@/components/primitives';
 import { formatRiskScore, probabilityToScore } from '@/lib/risk';
 import { shortId, titleCase } from '@/lib/format';
+import { LayerFindings } from '@/features/layers/LayerFindings';
+import { useLayers } from '@/features/layers/useMeta';
 import { useScorePoller } from './useScorePoller';
 
 export interface Submission {
@@ -33,6 +35,7 @@ export function SubmissionResult({
   const { result, status, replayed } = submission;
   const pending = result.scoring === 'PENDING';
   const { state, retry } = useScorePoller(result.transaction_id, pending);
+  const { products } = useLayers();
 
   const risk = result.risk ?? (state.phase === 'scored' ? state.risk : null);
   const riskScore = risk ? (risk.risk_score ?? probabilityToScore(risk.fraud_probability ?? 0)) : 0;
@@ -90,6 +93,7 @@ export function SubmissionResult({
               </span>
               . The platform decides independently whether that raises a case.
             </p>
+            <LayerFindings findings={risk.layer_findings} products={products} />
           </div>
         ) : null}
 

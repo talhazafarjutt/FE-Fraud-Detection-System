@@ -20,6 +20,14 @@ import {
   ENTITY_FIXTURES,
   type MockCase,
 } from './investigation';
+import {
+  ISLAMIC_ALERTS,
+  ISLAMIC_CASES,
+  ISLAMIC_SCORES,
+  ISLAMIC_TRANSACTIONS,
+  META_FIXTURE,
+  islamicSummary,
+} from './islamic';
 
 /**
  * MSW handlers mirroring the real backend closely enough that the whole console
@@ -36,14 +44,22 @@ const CLIENT_SECRETS: Record<string, string> = {
   'ml-service': 'demo-ml-secret-not-for-production',
 };
 
-/** In-memory mutable copy so PATCHes persist for the life of the page. */
-const alerts = ALERT_FIXTURES.map((alert) => ({ ...alert, events: [...alert.events] }));
+/**
+ * In-memory mutable copy so PATCHes persist for the life of the page. Demo mode
+ * runs with the Islamic layer on, so its alerts, transactions and cases join
+ * the core fixtures.
+ */
+const alerts = [...ALERT_FIXTURES, ...ISLAMIC_ALERTS].map((alert) => ({
+  ...alert,
+  events: [...alert.events],
+}));
 const users = [...USER_FIXTURES];
 const idempotencyLog = new Map<string, Record<string, unknown>>();
-const transactions = [...ALL_TRANSACTIONS];
+const transactions = [...ALL_TRANSACTIONS, ...ISLAMIC_TRANSACTIONS];
+const islamicTransactionById = new Map(ISLAMIC_TRANSACTIONS.map((t) => [t.id, t]));
 
 /** Mutable copies so PATCH, attach and detach persist for the life of the page. */
-const cases: MockCase[] = CASE_FIXTURES.map((entry) => ({
+const cases: MockCase[] = [...CASE_FIXTURES, ...ISLAMIC_CASES].map((entry) => ({
   ...entry,
   alerts: [...entry.alerts],
 }));
@@ -508,7 +524,15 @@ export const handlers = [
     const more = start + limit < visible.length;
 
     return HttpResponse.json({
-      items: page.map(({ events: _events, explanation: _explanation, ...row }) => row),
+      // Queue rows carry `layer_facts` only; full findings are on the detail.
+      items: page.map(
+        ({
+          events: _events,
+          explanation: _explanation,
+          layer_findings: _layerFindings,
+          ...row
+        }) => row,
+      ),
       next_cursor: more && last ? last.id : null,
       page_size: limit,
     });
@@ -747,6 +771,8 @@ export const handlers = [
   http.get('*/v1/transactions/:id/score', ({ request, params }) => {
     const guard = requireScope(request, 'transactions:read');
     if (guard.error) return guard.error;
+    const islamicScore = ISLAMIC_SCORES.get(String(params['id']));
+    if (islamicScore) return HttpResponse.json(islamicScore);
     const transaction = TRANSACTION_FIXTURES[String(params['id'])];
     if (!transaction) {
       return problem(404, 'Not found', 'No score recorded for this transaction yet.');
@@ -766,9 +792,29 @@ export const handlers = [
   http.get('*/v1/transactions/:id', ({ request, params }) => {
     const guard = requireScope(request, 'transactions:read');
     if (guard.error) return guard.error;
-    const transaction = TRANSACTION_FIXTURES[String(params['id'])];
+    const id = String(params['id']);
+    const transaction = TRANSACTION_FIXTURES[id] ?? islamicTransactionById.get(id);
     if (!transaction) return problem(404, 'Not found', 'No such transaction.');
     return HttpResponse.json(transaction);
+  }),
+
+  http.get('*/v1/meta', ({ request }) => {
+    const session = sessionFor(request);
+    if (!session) return problem(401, 'Unauthorized', 'A valid access token is required.');
+    return HttpResponse.json(META_FIXTURE);
+  }),
+
+  http.get('*/v1/islamic/summary', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    return HttpResponse.json(
+      islamicSummary(
+        (team) => visibleTo(session, team),
+        alerts.filter((alert) => visibleTo(session, alert.team)),
+        cases,
+      ),
+    );
   }),
 
   http.get('*/v1/users', ({ request }) => {
@@ -876,6 +922,18 @@ export const handlers = [
 
     let rows = transactions.map((t) => {
       const alert = alertByTx.get(t.id);
+      const islamic = ISLAMIC_SCORES.get(t.id);
+      if (islamic) {
+        return {
+          ...t,
+          fraud_probability: null,
+          risk_score: islamic.risk_score,
+          risk_level: islamic.risk_level,
+          alert_id: alert?.id ?? null,
+          alert_status: alert?.status ?? null,
+          alert_severity: alert?.severity ?? null,
+        };
+      }
       const probability = alert?.fraud_probability ?? CLEAN_PROBABILITY.get(t.id) ?? 0;
       return {
         ...t,

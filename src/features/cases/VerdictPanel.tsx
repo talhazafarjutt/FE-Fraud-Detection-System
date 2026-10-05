@@ -1,6 +1,9 @@
 import type { CaseFeedback } from '@/api/schemas/cases';
 import { Eyebrow, Panel, Tag, cx } from '@/components/primitives';
 import { PersonFact, UserName } from '@/features/users/UserName';
+import { layerLabel } from '@/features/layers/facts';
+import { LayerFindings } from '@/features/layers/LayerFindings';
+import { useLayers } from '@/features/layers/useMeta';
 import { formatAbsolute, shortId } from '@/lib/format';
 import { bandForScore, BAND_HEX, formatRiskScore } from '@/lib/risk';
 
@@ -25,6 +28,7 @@ const LABEL_TONE: Record<string, string> = {
 };
 
 export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
+  const { products } = useLayers();
   const label = String(feedback.final_label);
   const alertCount = feedback.alert_count ?? 1;
 
@@ -148,9 +152,21 @@ export function VerdictPanel({ feedback }: { feedback: CaseFeedback }) {
                 {rule.description ? (
                   <span className="text-ink-2">{rule.description}</span>
                 ) : null}
+                {rule.source ? (
+                  <span className="mono-label text-ink-3">
+                    Added by {layerLabel(rule.source)} layer
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {feedback.original_layer_findings ? (
+        <div className="mt-6">
+          <Eyebrow>Layer findings at the moment of decision</Eyebrow>
+          <LayerFindings findings={feedback.original_layer_findings} products={products} />
         </div>
       ) : null}
 

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { Alert } from '@/api/schemas/alerts';
 import { SeverityChip, StatusChip } from '@/components/Chips';
 import { UserName } from '@/features/users/UserName';
+import { ActiveProductChip } from '@/features/layers/ProductChip';
+import type { Layers } from '@/features/layers/useMeta';
 import { formatAbsolute, formatRelative } from '@/lib/format';
 import { formatAmount } from '@/lib/money';
 import { BAND_HEX, riskDisplay } from '@/lib/risk';
@@ -10,13 +12,15 @@ import { BAND_HEX, riskDisplay } from '@/lib/risk';
 interface Props {
   alert: Alert;
   onHover: (alertId: string) => void;
+  /** Set only when an active layer defines products; adds the Product cell. */
+  layers?: Layers | null | undefined;
 }
 
 /**
  * Memoised on `alert` identity. Props are primitives plus one stable callback,
  * so a new page arriving does not re-render rows that are already on screen.
  */
-export const AlertRow = memo(function AlertRow({ alert, onHover }: Props) {
+export const AlertRow = memo(function AlertRow({ alert, onHover, layers }: Props) {
   // V1 headline is risk_score, 0–100 and never a percentage. Falls back to the
   // legacy probability, which is all the deployed backend currently populates.
   const risk = riskDisplay(alert.risk_score, alert.fraud_probability);
@@ -30,6 +34,12 @@ export const AlertRow = memo(function AlertRow({ alert, onHover }: Props) {
       <td className="py-3 pr-4">
         <SeverityChip severity={alert.severity} />
       </td>
+
+      {layers ? (
+        <td className="py-3 pr-4">
+          <ActiveProductChip facts={alert.layer_facts} layers={layers} />
+        </td>
+      ) : null}
 
       <td className="py-3 pr-4">
         {risk === null ? (

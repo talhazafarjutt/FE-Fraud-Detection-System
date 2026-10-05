@@ -12,6 +12,10 @@ import { errorStatus } from '@/lib/problem';
 import { AlertActions } from './AlertActions';
 import { CaseTrail } from './CaseTrail';
 import { UserName } from '@/features/users/UserName';
+import { activeProductFacts, factsFromFindings, productText } from '@/features/layers/facts';
+import { LayerFindings } from '@/features/layers/LayerFindings';
+import { ProductChip } from '@/features/layers/ProductChip';
+import { useLayers } from '@/features/layers/useMeta';
 import {
   DecisionReasons,
   NetworkNeighbourhood,
@@ -26,6 +30,7 @@ const ExplanationChart = lazy(() => import('./ExplanationChart'));
 
 export default function AlertDetailPage() {
   const { alertId = '' } = useParams();
+  const layers = useLayers();
 
   const {
     data: alert,
@@ -80,6 +85,11 @@ export default function AlertDetailPage() {
   const positive = alert.explanation.filter((r) => r.contribution > 0).length;
   const negative = alert.explanation.length - positive;
 
+  const product = activeProductFacts(
+    alert.layer_facts ?? factsFromFindings(alert.layer_findings),
+    layers.layers,
+  );
+
   return (
     <div className="space-y-12">
       <header className="flex flex-wrap items-start justify-between gap-6 border-b border-rule pb-6">
@@ -89,6 +99,9 @@ export default function AlertDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             <SeverityChip severity={alert.severity} />
             <StatusChip status={alert.status} />
+            {product ? (
+              <ProductChip facts={product.facts} layer={product.layer} products={layers.products} />
+            ) : null}
             <span className="tag">Team {alert.team}</span>
             <span className="tag" title={formatAbsolute(alert.opened_at)}>
               Opened {formatRelative(alert.opened_at)}
@@ -182,6 +195,7 @@ export default function AlertDetailPage() {
       <section className="space-y-6">
         <SectionHeading index="04" title="Rules" hint="Hard rules that fired on this transaction." />
         <TriggeredRules rules={alert.triggered_rules} />
+        <LayerFindings findings={alert.layer_findings} products={layers.products} />
       </section>
 
       <section className="space-y-6">
@@ -235,6 +249,10 @@ export default function AlertDetailPage() {
             data={transaction.data}
             isPending={transaction.isPending}
             isError={transaction.isError}
+            product={
+              product ? productText(product.facts, layers.products, product.layer) : null
+            }
+            contract={product?.facts.contract_id}
           />
         </div>
       </section>
@@ -256,11 +274,16 @@ function TransactionSummary({
   data,
   isPending,
   isError,
+  product,
+  contract,
 }: {
   transactionId: string;
   data: import('@/api/schemas/transactions').Transaction | undefined;
   isPending: boolean;
   isError: boolean;
+  /** "Murabaha · instalment 8/36", when an active layer read a product. */
+  product?: string | null;
+  contract?: string | null | undefined;
 }) {
   return (
     <div className="border border-rule bg-surface">
@@ -280,6 +303,8 @@ function TransactionSummary({
           <dl className="space-y-4">
             <Row label="Reference" value={data.external_ref ?? shortId(transactionId)} />
             <Row label="Type" value={titleCase(data.transaction_type)} />
+            {product ? <Row label="Product" value={product} /> : null}
+            {product && contract ? <Row label="Contract" value={contract} /> : null}
             <Row label="Booked" value={formatAbsolute(data.booked_at)} />
             <Row label="Amount" value={formatMoney(data.amount, data.currency)} />
             <Row label="Sender balance before" value={formatMoney(data.sender_balance_before, data.currency)} />

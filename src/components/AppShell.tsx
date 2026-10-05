@@ -4,6 +4,7 @@ import { API_BASE_LABEL, API_BASE_PROBLEM } from '@/api/client';
 import { teamLabel } from '@/lib/format';
 import { useAuth } from '@/auth/AuthProvider';
 import { roleLabel } from '@/auth/tokenStore';
+import { LayerBadges } from '@/features/layers/LayerBadges';
 import { ErrorBoundary } from './ErrorBoundary';
 import { StatusDot } from './StatusDot';
 import { ThemeToggle } from './ThemeToggle';
@@ -118,6 +119,7 @@ export function AppShell() {
             <span className="tag" title={session?.email ?? undefined}>
               {role}
             </span>
+            <LayerBadges />
             <Link
               to="/flow"
               className="tag hover:border-ultra hover:text-ultra"

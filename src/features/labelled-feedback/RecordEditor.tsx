@@ -7,7 +7,9 @@ import type {
   LabelledFeedbackPatch,
 } from '@/api/schemas/labelledFeedback';
 import { Button, Eyebrow } from '@/components/primitives';
-import { ChipInput, Choice, Group } from '@/features/cases/ConcludeModal';
+import { ChipInput, Choice, Group, TypologyInput } from '@/features/cases/ConcludeModal';
+import { LayerFindings } from '@/features/layers/LayerFindings';
+import { useLayers } from '@/features/layers/useMeta';
 import { PersonFact, UserName } from '@/features/users/UserName';
 import { formatAbsolute, formatRelative } from '@/lib/format';
 import { formatRiskScore } from '@/lib/risk';
@@ -50,6 +52,7 @@ export interface RecordEditorProps {
 export function RecordEditor({ record, onClose, onSave, saving, error }: RecordEditorProps) {
   const headingId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { products } = useLayers();
 
   const [decision, setDecision] = useState<CurationStatus>('PENDING');
   const [curationNote, setCurationNote] = useState('');
@@ -150,6 +153,11 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
               {record.model_version ?? '—'}, engine {record.risk_engine_version ?? '—'}. Decided{' '}
               {formatAbsolute(record.decided_at)}.
             </p>
+            {record.original_layer_findings ? (
+              <div className="mt-3">
+                <LayerFindings findings={record.original_layer_findings} products={products} />
+              </div>
+            ) : null}
           </section>
 
           {/* --- What the investigation recorded: read-only ---------------- */}
@@ -256,12 +264,7 @@ export function RecordEditor({ record, onClose, onSave, saving, error }: RecordE
               </Group>
 
               <Group legend="Typology" hint="The shape of the scheme, e.g. MULE_RING.">
-                <input
-                  className="field"
-                  maxLength={64}
-                  value={typology}
-                  onChange={(event) => setTypology(event.target.value)}
-                />
+                <TypologyInput value={typology} onChange={setTypology} />
               </Group>
 
               <Group legend="What drove the decision">

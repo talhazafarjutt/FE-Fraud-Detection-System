@@ -7,12 +7,15 @@ import { Button, EmptyState, Eyebrow, Skeleton } from '@/components/primitives';
 import { SkippedRowsNotice } from '@/components/ApiStates';
 import { errorStatus } from '@/lib/problem';
 import { formatRiskScore, riskDisplay } from '@/lib/risk';
+import { useLayers } from '@/features/layers/useMeta';
 import { AlertFilterBar } from './AlertFilterBar';
 import { AlertRow } from './AlertRow';
 import { prefetchAlert, useAlertsQuery } from './queries';
 import { useAlertFilters } from './useAlertFilters';
 
-const COLUMNS = [
+type Column = { label: string; align: 'left' | 'right' };
+
+const COLUMNS: readonly Column[] = [
   { label: 'Severity', align: 'left' },
   { label: 'Risk', align: 'right' },
   { label: 'Amount', align: 'right' },
@@ -21,7 +24,14 @@ const COLUMNS = [
   { label: 'Opened', align: 'left' },
   { label: 'Assignee', align: 'left' },
   { label: '', align: 'right' },
-] as const;
+];
+
+/** Drawn after Severity, and only while an active layer defines products. */
+const WITH_PRODUCT: readonly Column[] = [
+  COLUMNS[0]!,
+  { label: 'Product', align: 'left' },
+  ...COLUMNS.slice(1),
+];
 
 /** Median without sorting the caller's array in place. */
 function median(values: number[]): number | null {
@@ -40,6 +50,8 @@ export default function AlertQueuePage() {
   const { filters } = filterState;
   const queryClient = useQueryClient();
   const { hasScope } = useAuth();
+  const layers = useLayers();
+  const columns = layers.hasProducts ? WITH_PRODUCT : COLUMNS;
 
   const {
     data,
@@ -170,14 +182,14 @@ export default function AlertQueuePage() {
               <table className="w-full min-w-[900px] border-collapse">
                 <thead>
                   <tr className="border-b border-rule">
-                    {COLUMNS.map((column, index) => (
+                    {columns.map((column, index) => (
                       <th
                         key={column.label || `col-${index}`}
                         scope="col"
                         className={`px-0 py-3 font-mono text-[11px] font-normal uppercase tracking-tag text-ink-3 ${
                           column.align === 'right' ? 'text-right' : 'text-left'
                         } ${index === 0 ? 'pl-4' : ''} ${
-                          index === COLUMNS.length - 1 ? 'pr-4' : 'pr-4'
+                          index === columns.length - 1 ? 'pr-4' : 'pr-4'
                         }`}
                       >
                         {column.label}
@@ -187,7 +199,12 @@ export default function AlertQueuePage() {
                 </thead>
                 <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
                   {alerts.map((alert) => (
-                    <AlertRow key={alert.id} alert={alert} onHover={onHover} />
+                    <AlertRow
+                      key={alert.id}
+                      alert={alert}
+                      onHover={onHover}
+                      layers={layers.hasProducts ? layers : null}
+                    />
                   ))}
                 </tbody>
               </table>

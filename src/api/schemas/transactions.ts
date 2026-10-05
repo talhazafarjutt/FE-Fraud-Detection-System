@@ -8,6 +8,7 @@ import {
   transactionTypeSchema,
   uuid,
 } from './common';
+import { layerFindingsSchema } from './layers';
 
 /* ------------------------------------------------------------------ *
  * Outbound — mirrors the server's Pydantic rules so the user sees the
@@ -169,6 +170,7 @@ export const riskSchema = z.object({
   model_decision: z.union([modelDecisionSchema, z.string()]).nullable().default(null),
   latency_ms: z.number().int().nullable().default(null),
   scored_at: isoDateTime.nullable().default(null),
+  layer_findings: layerFindingsSchema.optional(),
 });
 export type Risk = z.infer<typeof riskSchema>;
 

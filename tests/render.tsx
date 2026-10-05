@@ -11,13 +11,19 @@ import { directoryKey } from '@/features/users/directory';
  * Render inside the providers the app gives a page: a session holding
  * `scopes`, a query client and toasts. The people directory is pre-filled, so
  * no request is made for it; pass `directory: null` to leave it unfetched.
+ * `seed` pre-fills any other query, e.g. `/v1/meta`.
  */
 export function renderWithProviders(
   ui: ReactElement,
   {
     scopes = ['alerts:read'],
     directory = [],
-  }: { scopes?: string[]; directory?: DirectoryUser[] | null } = {},
+    seed = [],
+  }: {
+    scopes?: string[];
+    directory?: DirectoryUser[] | null;
+    seed?: Array<[readonly unknown[], unknown]>;
+  } = {},
 ) {
   tokenStore.set({
     access_token: 'header.payload.signature',
@@ -30,6 +36,7 @@ export function renderWithProviders(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   if (directory) client.setQueryData(directoryKey, directory);
+  for (const [key, data] of seed) client.setQueryData(key, data);
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>

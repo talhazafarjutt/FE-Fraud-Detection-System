@@ -61,6 +61,8 @@ export interface MockCase {
     status: string;
     severity: string;
     opened_at: string;
+    /** Set on members whose score an active layer read a product off. */
+    layer_facts?: Record<string, unknown> | null;
   }[];
   feedback: Record<string, unknown> | null;
 }

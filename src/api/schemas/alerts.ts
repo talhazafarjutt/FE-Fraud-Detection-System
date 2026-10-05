@@ -8,6 +8,7 @@ import {
   looseExplanationSchema,
   uuid,
 } from './common';
+import { layerFactsByLayerSchema, layerFindingsSchema } from './layers';
 
 /**
  * The score's origin: which model, which engine version, which score row. This
@@ -65,6 +66,8 @@ export const alertSchema = z
      * Exactly the silent class of failure this schema layer exists to prevent.
      */
     provenance: provenanceSchema.nullable().default(null),
+    /** Each active layer's facts (product, event, contract) for this alert's score. */
+    layer_facts: layerFactsByLayerSchema.optional(),
   })
   .passthrough();
 export type Alert = z.infer<typeof alertSchema>;
@@ -105,6 +108,8 @@ export const triggeredRuleSchema = z
     rule: z.string(),
     severity: z.string().nullable().default(null),
     description: z.string().nullable().default(null),
+    /** The layer that added the rule; null or absent for the engine's own. */
+    source: z.string().nullish(),
   })
   .passthrough();
 export type TriggeredRule = z.infer<typeof triggeredRuleSchema>;
@@ -164,6 +169,7 @@ export const alertDetailSchema = alertSchema
     network: networkSchema.nullable().default(null),
     anomaly: anomalySchema.nullable().default(null),
     decision_reasons: z.array(decisionReasonSchema).default([]),
+    layer_findings: layerFindingsSchema.optional(),
   })
   .passthrough();
 export type AlertDetail = z.infer<typeof alertDetailSchema>;

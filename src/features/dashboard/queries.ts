@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { getMetricsOverview } from '@/api/endpoints/metrics';
 import { listAlerts } from '@/api/endpoints/alerts';
+import { getIslamicSummary } from '@/api/endpoints/islamic';
 import type { MetricsQuery } from '@/api/schemas/metrics';
 
 /**
  * §15.5: the whole dashboard renders from TWO requests — `/v1/metrics/overview`
  * and one page of alerts. If a third is needed, the API is wrong, not the UI.
+ * (An active layer adds its own summary; with layers off it is never requested.)
  *
  * `staleTime` is 60s with manual refresh. A dashboard refetching every few
  * seconds during a presentation is a distraction and a load generator.
@@ -16,7 +18,18 @@ export const DASHBOARD_STALE_MS = 60_000;
 export const dashboardKeys = {
   metrics: (query: MetricsQuery) => ['metrics', 'overview', query] as const,
   queue: () => ['alerts', 'list', { dashboard: true }] as const,
+  islamic: () => ['islamic', 'summary'] as const,
 };
+
+/** Only while the Islamic layer is active; the route does not exist otherwise. */
+export function useIslamicSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: dashboardKeys.islamic(),
+    queryFn: ({ signal }) => getIslamicSummary(signal),
+    enabled,
+    staleTime: DASHBOARD_STALE_MS,
+  });
+}
 
 export function useMetricsQuery(query: MetricsQuery) {
   return useQuery({

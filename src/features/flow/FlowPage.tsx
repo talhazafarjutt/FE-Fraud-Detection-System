@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthProvider';
 import { Eyebrow, Panel, SectionHeading, Tag } from '@/components/primitives';
 import { teamLabel } from '@/lib/format';
-import { FlowPipeline } from './FlowPipeline';
+import { ISLAMIC_LAYER, useLayers } from '@/features/layers/useMeta';
+import { FlowPipeline, type SubStep } from './FlowPipeline';
 import { useFlowCounts } from './useFlowCounts';
 import { capabilitiesFor, restrictionsFor, roleSummary } from './stages';
 import { markIntroSeen } from './introState';
@@ -34,6 +35,8 @@ export default function FlowPage() {
   const capabilities = capabilitiesFor(scopes);
   const restrictions = restrictionsFor(scopes);
   const crossTeam = hasScope('alerts:read:all');
+  const { isActive } = useLayers();
+  const substeps = isActive(ISLAMIC_LAYER) ? { detection: ISLAMIC_STEP } : undefined;
 
   return (
     <div className="space-y-10">
@@ -76,7 +79,7 @@ export default function FlowPage() {
         <p className="max-w-3xl text-[14px] text-ink-2 md:text-[16px]">
           Lit stages are yours. Dimmed ones belong to someone else.
         </p>
-        <FlowPipeline scopes={scopes} counts={counts} />
+        <FlowPipeline scopes={scopes} counts={counts} {...(substeps ? { substeps } : {})} />
       </section>
 
       <div className="grid gap-8 lg:grid-cols-2">
@@ -157,6 +160,11 @@ export default function FlowPage() {
     </div>
   );
 }
+
+const ISLAMIC_STEP: SubStep = {
+  title: 'Islamic layer',
+  body: 'Reads the contract terms sent with the transaction, adds Islamic rules, and sets aside a core rule when the contract explains it. Both are shown on the alert.',
+};
 
 /** The canonical walkthrough. Deliberately concrete rather than abstract. */
 const WALKTHROUGH = [

@@ -493,6 +493,7 @@ export interface paths {
          *
          *     Same team rule as the case files: an analyst sees their own team. A user
          *     administrator already lists everyone through GET /users, so sees all.
+         *     Ordered by name and capped at 1000 accounts.
          */
         get: operations["user_directory_v1_users_directory_get"];
         put?: never;
@@ -737,6 +738,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Meta */
+        get: operations["get_meta_v1_meta_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/islamic/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Summary */
+        get: operations["get_summary_v1_islamic_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -791,6 +826,10 @@ export interface components {
             /** Currency */
             currency?: string | null;
             provenance?: components["schemas"]["AlertProvenanceOut"] | null;
+            /** Layer Facts */
+            layer_facts?: {
+                [key: string]: unknown;
+            } | null;
             /** Events */
             events?: components["schemas"]["AlertEventOut"][];
             /** Explanation */
@@ -825,6 +864,10 @@ export interface components {
             decision_reasons?: {
                 [key: string]: unknown;
             }[];
+            /** Layer Findings */
+            layer_findings?: {
+                [key: string]: unknown;
+            } | null;
             feedback?: components["schemas"]["FeedbackOut"] | null;
         };
         /** AlertEventOut */
@@ -886,6 +929,10 @@ export interface components {
             /** Currency */
             currency?: string | null;
             provenance?: components["schemas"]["AlertProvenanceOut"] | null;
+            /** Layer Facts */
+            layer_facts?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** AlertPatch */
         AlertPatch: {
@@ -998,6 +1045,10 @@ export interface components {
              * Format: date-time
              */
             opened_at: string;
+            /** Layer Facts */
+            layer_facts?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** CaseAlertRef */
         CaseAlertRef: {
@@ -1470,6 +1521,10 @@ export interface components {
             original_network_score?: number | null;
             /** Original Triggered Rules */
             original_triggered_rules?: unknown[];
+            /** Original Layer Findings */
+            original_layer_findings?: {
+                [key: string]: unknown;
+            } | null;
             /** External Ref */
             external_ref?: string | null;
             /** Team */
@@ -1560,6 +1615,10 @@ export interface components {
             original_network_score?: number | null;
             /** Original Triggered Rules */
             original_triggered_rules?: unknown[];
+            /** Original Layer Findings */
+            original_layer_findings?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * FinalLabel
@@ -1661,6 +1720,10 @@ export interface components {
             original_network_score?: number | null;
             /** Original Triggered Rules */
             original_triggered_rules?: unknown[];
+            /** Original Layer Findings */
+            original_layer_findings?: {
+                [key: string]: unknown;
+            } | null;
             /** Case Title */
             case_title?: string | null;
             /** Case Status */
@@ -1699,6 +1762,17 @@ export interface components {
             missing_signals?: string[] | null;
             /** Notes */
             notes?: string | null;
+        };
+        /** MetaOut */
+        MetaOut: {
+            /** Layers */
+            layers?: string[];
+            /** Typologies */
+            typologies?: string[];
+            /** Products */
+            products?: {
+                [key: string]: unknown;
+            }[];
         };
         /**
          * ModelAgreement
@@ -1889,6 +1963,38 @@ export interface components {
          * @enum {string}
          */
         PartyType: "PERSON" | "COMPANY";
+        /** ProductSummaryOut */
+        ProductSummaryOut: {
+            /** Product */
+            product: string;
+            /** Label */
+            label: string;
+            /**
+             * Transactions
+             * @default 0
+             */
+            transactions: number;
+            /**
+             * Alerts
+             * @default 0
+             */
+            alerts: number;
+            /**
+             * Set Aside
+             * @default 0
+             */
+            set_aside: number;
+            /**
+             * Confirmed Fraud
+             * @default 0
+             */
+            confirmed_fraud: number;
+            /**
+             * False Positive
+             * @default 0
+             */
+            false_positive: number;
+        };
         /** ReasonOut */
         ReasonOut: {
             /** Feature */
@@ -1945,6 +2051,25 @@ export interface components {
             decision_reasons?: {
                 [key: string]: unknown;
             }[];
+            /** Layer Findings */
+            layer_findings?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** RuleCountOut */
+        RuleCountOut: {
+            /** Rule */
+            rule: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "set_aside";
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
         };
         /**
          * ScorePush
@@ -2026,6 +2151,13 @@ export interface components {
              * @default false
              */
             rule_floor_applied: boolean;
+        };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Products */
+            products: components["schemas"]["ProductSummaryOut"][];
+            /** Rules */
+            rules: components["schemas"]["RuleCountOut"][];
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2202,6 +2334,8 @@ export interface components {
             severity: string;
             /** Description */
             description: string;
+            /** Source */
+            source?: string | null;
         };
         /** UserCreate */
         UserCreate: {
@@ -3625,6 +3759,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_meta_v1_meta_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetaOut"];
+                };
+            };
+        };
+    };
+    get_summary_v1_islamic_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
                 };
             };
         };
