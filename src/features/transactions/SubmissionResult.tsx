@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
-import type { TransactionCreated } from '@/api/schemas/transactions';
+import type { Risk, TransactionCreated } from '@/api/schemas/transactions';
 import { BandChip, SeverityChip, StatusChip } from '@/components/Chips';
 import { Button, Eyebrow } from '@/components/primitives';
 import { formatRiskScore, probabilityToScore } from '@/lib/risk';
 import { shortId, titleCase } from '@/lib/format';
 import { LayerFindings } from '@/features/layers/LayerFindings';
 import { useLayers } from '@/features/layers/useMeta';
+import type { SampleExpectation } from './samples';
 import { useScorePoller } from './useScorePoller';
 
 export interface Submission {
@@ -16,6 +17,8 @@ export interface Submission {
   replayed: boolean;
   result: TransactionCreated;
   submittedAt: string;
+  /** The sample's prediction, when this submission came from "Load sample". */
+  expected?: SampleExpectation;
 }
 
 /**
@@ -99,6 +102,10 @@ export function SubmissionResult({
 
         {pending && !risk ? <PollStatus state={state} onRetry={retry} /> : null}
 
+        {submission.expected && risk ? (
+          <ExpectedVsGot expected={submission.expected} result={submission.result} risk={risk} />
+        ) : null}
+
         {result.alert ? (
           <div className="border border-rule-soft p-4">
             <p className="mono-label mb-3 text-ink-3">Alert raised</p>
@@ -180,6 +187,53 @@ function PollStatus({
   }
 
   return null;
+}
+
+/**
+ * "Expected: … / Got: …" — the sample's prediction next to what the live
+ * engine actually did. `alert ≥70 or an alert reference` matches the
+ * backend's own `should_open_alert` gate (risk_bands.band_for >= HIGH, or any
+ * network evidence, which still opens an alert even at a lower score).
+ */
+function ExpectedVsGot({
+  expected,
+  result,
+  risk,
+}: {
+  expected: SampleExpectation;
+  result: TransactionCreated;
+  risk: Risk;
+}) {
+  const score = risk.risk_score ?? probabilityToScore(risk.fraud_probability ?? 0);
+  const gotAlert = Boolean(result.alert) || score >= 70;
+  const findings = risk.layer_findings?.['islamic'];
+  const gotAdded = findings?.added.map((rule) => rule.rule) ?? [];
+  const gotSetAside = findings?.set_aside.map((rule) => rule.rule) ?? [];
+
+  const sameSet = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((rule) => b.includes(rule));
+  const matches =
+    expected.alert === gotAlert &&
+    sameSet(expected.added ?? [], gotAdded) &&
+    sameSet(expected.setAside ?? [], gotSetAside);
+
+  return (
+    <div className={`border px-4 py-3 text-[14px] ${matches ? 'border-sage' : 'border-carmine'}`}>
+      <p className="mono-label mb-2 text-ink-3">{matches ? 'Matches the prediction' : 'Does not match'}</p>
+      <p className="text-ink-2">
+        <span className="font-mono text-[12px] uppercase tracking-tag text-ink-3">Expected</span>{' '}
+        {expected.alert ? 'alert' : 'no alert'}
+        {expected.added?.length ? ` · added ${expected.added.join(', ')}` : ''}
+        {expected.setAside?.length ? ` · set aside ${expected.setAside.join(', ')}` : ''}
+      </p>
+      <p className="text-ink-2">
+        <span className="font-mono text-[12px] uppercase tracking-tag text-ink-3">Got</span>{' '}
+        {gotAlert ? 'alert' : 'no alert'} (score {formatRiskScore(score)})
+        {gotAdded.length ? ` · added ${gotAdded.join(', ')}` : ''}
+        {gotSetAside.length ? ` · set aside ${gotSetAside.join(', ')}` : ''}
+      </p>
+    </div>
+  );
 }
 
 function Cell({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

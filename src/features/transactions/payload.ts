@@ -1,4 +1,4 @@
-import type { TransactionFormParsed } from '@/api/schemas/transactions';
+import type { IslamicContractParsed, TransactionFormParsed } from '@/api/schemas/transactions';
 import { normaliseAmount } from '@/lib/money';
 
 /**
@@ -11,6 +11,11 @@ import { normaliseAmount } from '@/lib/money';
  *
  * Amounts go out as strings. They are never converted to a JS number anywhere
  * along this path.
+ *
+ * The Islamic contract section is a form concern only: on the wire its nine
+ * fields are just more entries in `metadata`, exactly where
+ * civitas_islamic/contract.py expects to find them. instalment_no and tenor go
+ * out as JSON integers — the backend 422s a string ("8" is not 8).
  */
 
 type Party = TransactionFormParsed['source_account']['holder'];
@@ -48,6 +53,20 @@ function buildAccount(account: Account): Record<string, unknown> {
   return base;
 }
 
+/** The Islamic contract section's nine fields, as `metadata` entries. */
+function buildIslamicMetadata(islamic: IslamicContractParsed): Record<string, unknown> {
+  if (!islamic.product) return {};
+  const out: Record<string, unknown> = { product: islamic.product, event: islamic.event };
+  if (islamic.contract_id) out['contract_id'] = islamic.contract_id;
+  if (typeof islamic.instalment_no === 'number') out['instalment_no'] = islamic.instalment_no;
+  if (typeof islamic.tenor === 'number') out['tenor'] = islamic.tenor;
+  if (islamic.scheduled_amount) out['scheduled_amount'] = normaliseAmount(islamic.scheduled_amount);
+  if (islamic.contract_start) out['contract_start'] = islamic.contract_start;
+  if (islamic.customer_iban) out['customer_iban'] = islamic.customer_iban;
+  if (islamic.supplier_iban) out['supplier_iban'] = islamic.supplier_iban;
+  return out;
+}
+
 export function buildTransactionPayload(values: TransactionFormParsed): Record<string, unknown> {
   const body: Record<string, unknown> = {
     amount: normaliseAmount(values.amount),
@@ -64,10 +83,10 @@ export function buildTransactionPayload(values: TransactionFormParsed): Record<s
   if (values.external_ref) body['external_ref'] = values.external_ref;
   if (values.mcc !== '' && values.mcc !== undefined) body['mcc'] = values.mcc;
 
-  const metadata = values.metadata.filter((entry) => entry.key !== '');
-  if (metadata.length > 0) {
-    body['metadata'] = Object.fromEntries(metadata.map((entry) => [entry.key, entry.value]));
-  }
+  const freeForm = values.metadata.filter((entry) => entry.key !== '');
+  const islamic = buildIslamicMetadata(values.islamic);
+  const metadata = { ...Object.fromEntries(freeForm.map((entry) => [entry.key, entry.value])), ...islamic };
+  if (Object.keys(metadata).length > 0) body['metadata'] = metadata;
 
   return body;
 }

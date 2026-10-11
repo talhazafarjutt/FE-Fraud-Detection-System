@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createTransaction } from '@/api/endpoints/transactions';
 import {
+  type IslamicContractFieldKey,
   type TransactionFormParsed,
   type TransactionFormValues,
   transactionFormSchema,
@@ -12,19 +13,37 @@ import {
 import type { MachineSession } from '@/auth/machineTokenStore';
 import { Button, EmptyState, Eyebrow } from '@/components/primitives';
 import { useToasts } from '@/components/Toasts';
+import { useLayers } from '@/features/layers/useMeta';
 import { formatAbsolute, shortId } from '@/lib/format';
+import { describeFailure } from '@/lib/problem';
 import { AccountFields } from './AccountFields';
 import { IngestSession } from './IngestSession';
+import { IslamicFields } from './IslamicFields';
 import { Field, FormSection } from './fields';
 import { buildTransactionPayload } from './payload';
-import { EMPTY_FORM, SAMPLES } from './samples';
+import { EMPTY_FORM, SAMPLES, type SampleExpectation } from './samples';
 import { SubmissionResult, type Submission } from './SubmissionResult';
 
 const TRANSACTION_TYPES = ['TRANSFER', 'CASH_OUT', 'CASH_IN', 'PAYMENT', 'DEBIT'] as const;
 
+/** `metadata.<key>` 422 field names -> the Islamic section's own field paths. */
+const ISLAMIC_METADATA_FIELD: Record<string, IslamicContractFieldKey | 'product' | 'event'> = {
+  product: 'product',
+  event: 'event',
+  contract_id: 'contract_id',
+  instalment_no: 'instalment_no',
+  tenor: 'tenor',
+  scheduled_amount: 'scheduled_amount',
+  contract_start: 'contract_start',
+  customer_iban: 'customer_iban',
+  supplier_iban: 'supplier_iban',
+};
+
 export default function TransactionsPage() {
   const queryClient = useQueryClient();
   const { push, pushError } = useToasts();
+  const layers = useLayers();
+  const islamicOn = layers.isActive('islamic');
 
   // transactions:write belongs to the ingest client, not to any human role, so
   // submission is gated on an open machine session rather than on user scopes.
@@ -36,6 +55,18 @@ export default function TransactionsPage() {
   // we do not pretend it is a global ledger.
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [replayingKey, setReplayingKey] = useState<string | null>(null);
+
+  // The currently-loaded sample's prediction, shown next to the form and
+  // carried onto the result it produces so "Expected" sits beside "Got".
+  const [expected, setExpected] = useState<SampleExpectation | null>(null);
+  const [expectedLabel, setExpectedLabel] = useState<string | null>(null);
+
+  // A multi-step sample (L3, F3, F6) submits setup transactions before the
+  // form is filled. Tracked here so the page can show progress and refuse to
+  // overlap two loads.
+  const [setupProgress, setSetupProgress] = useState<{ total: number; done: number } | null>(
+    null,
+  );
 
   // One Idempotency-Key per logical submit, reused across retries of that
   // submit — that is the whole point of the header.
@@ -53,6 +84,7 @@ export default function TransactionsPage() {
     handleSubmit,
     reset,
     getValues,
+    setError,
     formState: { errors, isSubmitting },
   } = form;
 
@@ -77,6 +109,7 @@ export default function TransactionsPage() {
           replayed: response.replayed,
           result: response.data,
           submittedAt: formatAbsolute(new Date().toISOString()),
+          expected: expected ?? undefined,
         },
         ...current,
       ]);
@@ -97,7 +130,23 @@ export default function TransactionsPage() {
         void queryClient.invalidateQueries({ queryKey: ['alerts', 'list'] });
       }
     },
-    onError: (error) => pushError(error, 'The transaction was not accepted'),
+    onError: (error) => {
+      // A 422 on one of the nine Islamic contract keys is shown under that
+      // field, same as every other validation error on this form — not just
+      // as a toast the user has to go hunting from.
+      const failure = describeFailure(error);
+      let mappedAny = false;
+      for (const fieldError of failure.fieldErrors ?? []) {
+        const match = /^metadata\.(.+)$/.exec(fieldError.field);
+        const key = match?.[1] && ISLAMIC_METADATA_FIELD[match[1]];
+        if (key) {
+          setError(`islamic.${key}` as const, { type: 'server', message: fieldError.message });
+          mappedAny = true;
+        }
+      }
+      if (!mappedAny) pushError(error, 'The transaction was not accepted');
+      else push({ tone: 'error', title: 'Check the Islamic contract section', detail: failure.detail });
+    },
     onSettled: () => setReplayingKey(null),
   });
 
@@ -132,12 +181,47 @@ export default function TransactionsPage() {
     [getValues, pushError, submitMutation, ingest],
   );
 
-  const loadSample = (sampleId: string) => {
+  const loadSample = async (sampleId: string) => {
     const sample = SAMPLES.find((entry) => entry.id === sampleId);
     if (!sample) return;
-    reset(sample.build());
+
+    if (sample.hasSetup && !ingest) {
+      pushError(
+        new Error(
+          'This scenario needs to create setup transactions first. Open an ingest session above, then load it again.',
+        ),
+        'Cannot load this sample yet',
+      );
+      return;
+    }
+
+    const scenario = sample.generate();
+
+    if (scenario.setup.length > 0 && ingest) {
+      setSetupProgress({ total: scenario.setup.length, done: 0 });
+      try {
+        for (const [index, setupValues] of scenario.setup.entries()) {
+          const parsed = transactionFormSchema.parse(setupValues);
+          const body = buildTransactionPayload(parsed);
+          await createTransaction(body, crypto.randomUUID(), ingest.accessToken);
+          setSetupProgress({ total: scenario.setup.length, done: index + 1 });
+        }
+      } catch (error) {
+        setSetupProgress(null);
+        pushError(error, `"${sample.label}" was not loaded — a setup transaction was refused`);
+        return;
+      }
+      setSetupProgress(null);
+    }
+
+    reset(scenario.final);
+    setExpected(sample.expected);
+    setExpectedLabel(sample.label);
     push({ tone: 'info', title: 'Sample loaded', detail: sample.summary });
   };
+
+  const legitimateSamples = SAMPLES.filter((sample) => sample.group === 'legitimate');
+  const fraudSamples = SAMPLES.filter((sample) => sample.group === 'fraud');
 
   return (
     <div className="space-y-10">
@@ -154,22 +238,48 @@ export default function TransactionsPage() {
             id="sample"
             className="field w-auto"
             defaultValue=""
+            disabled={setupProgress !== null}
             onChange={(event) => {
-              loadSample(event.target.value);
+              void loadSample(event.target.value);
               event.target.value = '';
             }}
           >
             <option value="" disabled>
               Choose a scenario
             </option>
-            {SAMPLES.map((sample) => (
-              <option key={sample.id} value={sample.id}>
-                {sample.label}
-              </option>
-            ))}
+            <optgroup label="Legitimate — no alert expected">
+              {legitimateSamples.map((sample) => (
+                <option key={sample.id} value={sample.id}>
+                  {sample.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Fraud — alert expected">
+              {fraudSamples.map((sample) => (
+                <option key={sample.id} value={sample.id}>
+                  {sample.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
       </header>
+
+      {setupProgress ? (
+        <p className="border border-amber px-4 py-3 font-mono text-[12px] uppercase tracking-tag text-amber">
+          Preparing scenario — submitted setup transaction {setupProgress.done} of{' '}
+          {setupProgress.total}…
+        </p>
+      ) : null}
+
+      {expected && expectedLabel ? (
+        <p className="border border-rule-soft px-4 py-3 text-[14px] text-ink-2">
+          <span className="mono-label mr-2 text-ink-3">Expected — {expectedLabel}</span>
+          {expected.alert ? 'An alert should open.' : 'No alert should open.'}
+          {expected.added?.length ? ` Added: ${expected.added.join(', ')}.` : ''}
+          {expected.setAside?.length ? ` Set aside: ${expected.setAside.join(', ')}.` : ''}
+        </p>
+      ) : null}
 
       <IngestSession onChange={setIngest} />
 
@@ -214,11 +324,12 @@ export default function TransactionsPage() {
                 label="Booked at"
                 htmlFor="booked_at"
                 error={errors.booked_at}
-                hint="No more than 5 minutes in the future."
+                hint="No more than 5 minutes in the future. Seconds matter: the network analyzer rejects a transaction booked earlier than one it has already seen."
               >
                 <input
                   id="booked_at"
                   type="datetime-local"
+                  step="1"
                   className="field"
                   {...register('booked_at')}
                 />
@@ -284,8 +395,18 @@ export default function TransactionsPage() {
             <AccountFields side="destination_account" />
           </FormSection>
 
+          {islamicOn ? (
+            <FormSection
+              index="04"
+              title="Islamic contract"
+              description="Shown because the Islamic banking layer is active on this deployment. These nine fields travel as metadata; a free-form row below may not reuse their keys."
+            >
+              <IslamicFields products={layers.products} />
+            </FormSection>
+          ) : null}
+
           <FormSection
-            index="04"
+            index={islamicOn ? '05' : '04'}
             title="Context"
             description="Free-form metadata. At most 25 entries; keys 64 characters, values 512."
           >
@@ -353,7 +474,14 @@ export default function TransactionsPage() {
                 Open an ingest session to submit.
               </p>
             ) : null}
-            <Button variant="ghost" onClick={() => reset(EMPTY_FORM)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                reset(EMPTY_FORM);
+                setExpected(null);
+                setExpectedLabel(null);
+              }}
+            >
               Reset form
             </Button>
           </div>

@@ -104,6 +104,178 @@ const metadataEntrySchema = z.object({
   value: z.string().trim().max(512, 'Metadata values are limited to 512 characters.'),
 });
 
+/* ------------------------------------------------------------------ *
+ * Islamic contract terms.
+ *
+ * These travel inside `metadata` on the wire (see payload.ts), never as
+ * top-level fields — civitas_islamic/contract.py reads them out of the
+ * metadata object the same way it reads a free-form key. The vocabulary below
+ * mirrors civitas_islamic/products.py (PRODUCTS, EVENTS, PRODUCT_EVENTS,
+ * EVENT_REQUIRES, PRODUCT_EVENT_REQUIRES) and contract.py's own validation;
+ * this is a UX layer that catches the same 422 before the round trip, not the
+ * authority.
+ * ------------------------------------------------------------------ */
+
+export const ISLAMIC_PRODUCTS = [
+  'MURABAHA',
+  'IJARA',
+  'MUSHARAKA',
+  'MUDARABA',
+  'SUKUK',
+  'TAKAFUL',
+  'QARD_HASAN',
+  'ZAKAT',
+] as const;
+export type IslamicProduct = (typeof ISLAMIC_PRODUCTS)[number];
+
+export const ISLAMIC_EVENTS = [
+  'DISBURSEMENT',
+  'INSTALMENT',
+  'EARLY_SETTLEMENT',
+  'RENTAL',
+  'PROFIT_DISTRIBUTION',
+  'CONTRIBUTION',
+  'CLAIM',
+  'CHARITY',
+  'ASSET_SALE',
+] as const;
+export type IslamicEvent = (typeof ISLAMIC_EVENTS)[number];
+
+/** Which events a product may produce — civitas_islamic/products.py PRODUCT_EVENTS. */
+export const ISLAMIC_PRODUCT_EVENTS: Record<IslamicProduct, readonly IslamicEvent[]> = {
+  MURABAHA: ['DISBURSEMENT', 'INSTALMENT', 'EARLY_SETTLEMENT', 'ASSET_SALE'],
+  IJARA: ['DISBURSEMENT', 'RENTAL', 'EARLY_SETTLEMENT'],
+  MUSHARAKA: ['DISBURSEMENT', 'INSTALMENT', 'EARLY_SETTLEMENT', 'PROFIT_DISTRIBUTION'],
+  MUDARABA: ['DISBURSEMENT', 'PROFIT_DISTRIBUTION'],
+  SUKUK: ['PROFIT_DISTRIBUTION'],
+  TAKAFUL: ['CONTRIBUTION', 'CLAIM'],
+  QARD_HASAN: ['DISBURSEMENT', 'INSTALMENT', 'EARLY_SETTLEMENT'],
+  ZAKAT: ['CHARITY'],
+};
+
+export type IslamicContractFieldKey =
+  | 'contract_id'
+  | 'instalment_no'
+  | 'tenor'
+  | 'scheduled_amount'
+  | 'contract_start'
+  | 'customer_iban'
+  | 'supplier_iban';
+
+/** Keys an event cannot be checked without — civitas_islamic/products.py EVENT_REQUIRES. */
+export const ISLAMIC_EVENT_REQUIRES: Record<IslamicEvent, readonly IslamicContractFieldKey[]> = {
+  DISBURSEMENT: ['contract_start'],
+  INSTALMENT: ['customer_iban', 'instalment_no', 'tenor', 'scheduled_amount'],
+  EARLY_SETTLEMENT: ['customer_iban'],
+  RENTAL: ['customer_iban', 'instalment_no', 'tenor', 'scheduled_amount'],
+  PROFIT_DISTRIBUTION: [],
+  CONTRIBUTION: ['contract_start'],
+  CLAIM: ['contract_start', 'customer_iban'],
+  CHARITY: [],
+  ASSET_SALE: ['contract_start', 'supplier_iban'],
+};
+
+/** A product/event pair that needs more than EVENT_REQUIRES alone — PRODUCT_EVENT_REQUIRES. */
+export const ISLAMIC_PRODUCT_EVENT_EXTRA_REQUIRES: Partial<
+  Record<string, readonly IslamicContractFieldKey[]>
+> = {
+  'MURABAHA:DISBURSEMENT': ['supplier_iban'],
+};
+
+/** The nine reserved keys. A free-form metadata row may not reuse one of them. */
+export const ISLAMIC_METADATA_KEYS: readonly string[] = [
+  'product',
+  'event',
+  'contract_id',
+  'instalment_no',
+  'tenor',
+  'scheduled_amount',
+  'contract_start',
+  'customer_iban',
+  'supplier_iban',
+];
+
+/** Every field an event of a product requires, contract_id included. */
+export function islamicRequiredFields(
+  product: string,
+  event: string,
+): readonly IslamicContractFieldKey[] {
+  if (!product || !event || !(event in ISLAMIC_EVENT_REQUIRES)) return [];
+  const required = new Set<IslamicContractFieldKey>(
+    ISLAMIC_EVENT_REQUIRES[event as IslamicEvent],
+  );
+  for (const key of ISLAMIC_PRODUCT_EVENT_EXTRA_REQUIRES[`${product}:${event}`] ?? []) {
+    required.add(key);
+  }
+  if (product !== 'ZAKAT') required.add('contract_id');
+  return [...required];
+}
+
+const optionalIbanField = z
+  .string()
+  .trim()
+  .transform((value) => (value === '' ? '' : normaliseIban(value)))
+  .refine(
+    (value) => value === '' || /^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(value),
+    'IBAN format is not valid.',
+  )
+  .refine((value) => value === '' || isValidIban(value), 'IBAN checksum (ISO 13616) does not pass.');
+
+const optionalPositiveInt = z
+  .union([z.literal(''), z.coerce.number().int().min(1, 'Must be a positive integer.')])
+  .optional()
+  .default('');
+
+const optionalAmountField = z.union([z.literal(''), amountField]).optional().default('');
+
+export const islamicContractSchema = z
+  .object({
+    product: z.union([z.enum(ISLAMIC_PRODUCTS), z.literal('')]).default(''),
+    event: z.union([z.enum(ISLAMIC_EVENTS), z.literal('')]).default(''),
+    contract_id: z.string().trim().max(64, 'At most 64 characters.').optional().or(z.literal('')),
+    instalment_no: optionalPositiveInt,
+    tenor: optionalPositiveInt,
+    scheduled_amount: optionalAmountField,
+    contract_start: z.string().optional().or(z.literal('')),
+    customer_iban: optionalIbanField,
+    supplier_iban: optionalIbanField,
+  })
+  .superRefine((contract, ctx) => {
+    const { product, event } = contract;
+    if (!product) return; // "None — conventional payment": no further checks.
+
+    if (!event) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['event'],
+        message: 'Choose which event this transaction represents.',
+      });
+      return;
+    }
+    if (!ISLAMIC_PRODUCT_EVENTS[product as IslamicProduct].includes(event as IslamicEvent)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['event'],
+        message: `${event} is not an event of a ${product} contract.`,
+      });
+      return;
+    }
+
+    for (const key of islamicRequiredFields(product, event)) {
+      const value = contract[key];
+      if (value === '' || value === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `Required for ${product} ${event.replace(/_/g, ' ').toLowerCase()}.`,
+        });
+      }
+    }
+  });
+
+export type IslamicContractValues = z.input<typeof islamicContractSchema>;
+export type IslamicContractParsed = z.output<typeof islamicContractSchema>;
+
 export const transactionFormSchema = z
   .object({
     external_ref: z.string().trim().max(128).optional().or(z.literal('')),
@@ -120,6 +292,7 @@ export const transactionFormSchema = z
     receiver_balance_before: balanceField,
     source_account: accountSchema,
     destination_account: accountSchema,
+    islamic: islamicContractSchema,
     metadata: z.array(metadataEntrySchema).max(25, 'At most 25 metadata entries.').default([]),
   })
   .superRefine((tx, ctx) => {
@@ -147,6 +320,17 @@ export const transactionFormSchema = z
         message: 'Metadata keys must be unique.',
       });
     }
+    // The Islamic contract section owns these nine keys; a free-form row
+    // reusing one would silently collide with it in the merged payload.
+    tx.metadata.forEach((entry, index) => {
+      if (entry.key && ISLAMIC_METADATA_KEYS.includes(entry.key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['metadata', index, 'key'],
+          message: `"${entry.key}" is set from the Islamic contract section above, not here.`,
+        });
+      }
+    });
   });
 
 export type TransactionFormValues = z.input<typeof transactionFormSchema>;

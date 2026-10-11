@@ -1,0 +1,182 @@
+import { beforeAll, describe, expect, it } from 'vitest';
+import { tokenResponseSchema } from '@/api/schemas/auth';
+import {
+  riskSchema,
+  transactionCreatedSchema,
+  transactionFormSchema,
+  type Risk,
+  type TransactionCreated,
+  type TransactionFormValues,
+} from '@/api/schemas/transactions';
+import { buildTransactionPayload } from '@/features/transactions/payload';
+import { SAMPLES, type Sample } from '@/features/transactions/samples';
+
+/**
+ * Proves every one of the fifteen Islamic samples against the LIVE API —
+ * not a mock, not a fixture. Skipped unless LIVE_API is set, because it needs
+ * a running backend and writes real transactions into its database.
+ *
+ * Required environment:
+ *   LIVE_API              the API's base URL (e.g. http://localhost:8000),
+ *                          or any truthy value to default to that address.
+ *   LIVE_INGEST_SECRET     the `ingest-loader` client's secret. Locally this
+ *                          is DEMO_INGEST_SECRET's default from
+ *                          app/core/config.py in the backend repo — passed in
+ *                          here, never written into this file.
+ *   LIVE_ANALYST_PASSWORD  a password for `analyst@example.com`, which this
+ *                          suite also needs: GET /v1/transactions/{id}/score
+ *                          requires `transactions:read`, which the ingest
+ *                          client does NOT hold (it has transactions:write
+ *                          only — see app/core/scopes.py ROLE_SCOPES). The
+ *                          local seed (scripts/seed.py) gives every human
+ *                          account the same password; this is also passed in
+ *                          via env, never written into this file.
+ *
+ * Run: LIVE_API=http://localhost:8000 LIVE_INGEST_SECRET=... \
+ *      LIVE_ANALYST_PASSWORD=... npx vitest run tests/islamic-samples.live.test.ts
+ */
+
+const LIVE_API = process.env.LIVE_API;
+const BASE =
+  LIVE_API && LIVE_API !== '1' && LIVE_API !== 'true' ? LIVE_API.replace(/\/$/, '') : 'http://localhost:8000';
+
+// Keeps every call (setups, finals, polls) comfortably under 120 req/min.
+const PACE_MS = 600;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function clientToken(clientId: string, clientSecret: string): Promise<string> {
+  const response = await fetch(`${BASE}/v1/auth/client-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!response.ok) {
+    throw new Error(`POST /v1/auth/client-token -> ${response.status}: ${await response.text()}`);
+  }
+  return tokenResponseSchema.parse(await response.json()).access_token;
+}
+
+async function login(username: string, password: string): Promise<string> {
+  const response = await fetch(`${BASE}/v1/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    throw new Error(`POST /v1/auth/token -> ${response.status}: ${await response.text()}`);
+  }
+  return tokenResponseSchema.parse(await response.json()).access_token;
+}
+
+async function submitTxn(
+  values: TransactionFormValues,
+  bearer: string,
+): Promise<TransactionCreated> {
+  const parsed = transactionFormSchema.parse(values);
+  const body = buildTransactionPayload(parsed);
+  const response = await fetch(`${BASE}/v1/transactions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${bearer}`,
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(`POST /v1/transactions -> ${response.status}: ${JSON.stringify(json)}`);
+  }
+  return transactionCreatedSchema.parse(json);
+}
+
+async function pollScore(transactionId: string, bearer: string, timeoutMs = 30_000): Promise<Risk> {
+  const deadline = Date.now() + timeoutMs;
+  let delay = 500;
+  for (;;) {
+    const response = await fetch(`${BASE}/v1/transactions/${transactionId}/score`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
+    if (response.status === 200) return riskSchema.parse(await response.json());
+    if (response.status !== 404) {
+      throw new Error(`GET /v1/transactions/${transactionId}/score -> ${response.status}`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Score for ${transactionId} did not COMPLETE within ${timeoutMs}ms`);
+    }
+    await sleep(delay);
+    delay = Math.min(delay * 2, 4_000);
+  }
+}
+
+interface SampleOutcome {
+  created: TransactionCreated;
+  risk: Risk;
+}
+
+async function runSample(sample: Sample, ingestToken: string, readToken: string): Promise<SampleOutcome> {
+  const scenario = sample.generate();
+  for (const setupValues of scenario.setup) {
+    await submitTxn(setupValues, ingestToken);
+    await sleep(PACE_MS);
+  }
+  const created = await submitTxn(scenario.final, ingestToken);
+  await sleep(PACE_MS);
+
+  let risk = created.risk ?? undefined;
+  if (created.scoring !== 'COMPLETE' || !risk) {
+    risk = await pollScore(created.transaction_id, readToken);
+    await sleep(PACE_MS);
+  }
+  return { created, risk };
+}
+
+describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
+  let ingestToken = '';
+  let readToken = '';
+
+  beforeAll(async () => {
+    const ingestSecret = process.env.LIVE_INGEST_SECRET;
+    if (!ingestSecret) {
+      throw new Error('Set LIVE_INGEST_SECRET (the ingest-loader client secret) to run this suite.');
+    }
+    const analystPassword = process.env.LIVE_ANALYST_PASSWORD;
+    if (!analystPassword) {
+      throw new Error(
+        'Set LIVE_ANALYST_PASSWORD (analyst@example.com\'s password) to run this suite — ' +
+          'GET /v1/transactions/{id}/score needs transactions:read, which the ingest client lacks.',
+      );
+    }
+    ingestToken = await clientToken('ingest-loader', ingestSecret);
+    readToken = await login('analyst@example.com', analystPassword);
+  }, 30_000);
+
+  for (const sample of SAMPLES) {
+    it(
+      `${sample.id}: ${sample.label}`,
+      async () => {
+        const { created, risk } = await runSample(sample, ingestToken, readToken);
+        const score = risk.risk_score ?? 0;
+        const gotAlert = Boolean(created.alert) || score >= 70;
+        const findings = risk.layer_findings?.['islamic'];
+        const added = [...(findings?.added.map((rule) => rule.rule) ?? [])].sort();
+        const setAside = [...(findings?.set_aside.map((rule) => rule.rule) ?? [])].sort();
+        const expectedAdded = [...(sample.expected.added ?? [])].sort();
+        const expectedSetAside = [...(sample.expected.setAside ?? [])].sort();
+
+        // eslint-disable-next-line no-console -- the point of this suite is a readable record of the run.
+        console.log(
+          `${sample.id}: expected alert=${sample.expected.alert} added=[${expectedAdded.join(', ')}] setAside=[${expectedSetAside.join(', ')}] ` +
+            `| got score=${score} alert=${gotAlert} added=[${added.join(', ')}] setAside=[${setAside.join(', ')}]`,
+        );
+
+        expect(gotAlert, 'alert').toBe(sample.expected.alert);
+        expect(added, 'rules added by the Islamic layer').toEqual(expectedAdded);
+        expect(setAside, 'rules the Islamic layer set aside').toEqual(expectedSetAside);
+      },
+      60_000,
+    );
+  }
+});
