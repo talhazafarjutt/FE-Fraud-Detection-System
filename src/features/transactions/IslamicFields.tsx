@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useFormContext, useWatch } from 'react-hook-form';
 import {
+  ISLAMIC_ASSET_EVENTS,
   ISLAMIC_PRODUCTS,
   ISLAMIC_PRODUCT_EVENTS,
   ISLAMIC_SCHEDULED_EVENTS,
@@ -11,6 +13,7 @@ import {
 } from '@/api/schemas/transactions';
 import type { LayerProduct } from '@/api/schemas/meta';
 import { productLabel } from '@/features/layers/facts';
+import { ContractLookup } from './ContractLookup';
 import { Field } from './fields';
 
 /**
@@ -29,6 +32,7 @@ const FIELD_LABEL: Record<IslamicContractFieldKey, string> = {
   due_date: 'Due date',
   customer_iban: 'Customer IBAN',
   supplier_iban: 'Supplier IBAN',
+  asset_id: 'Asset / invoice ID',
 };
 
 /**
@@ -63,12 +67,21 @@ export function IslamicFields({ products }: { products: readonly LayerProduct[] 
 
   const product = useWatch({ control, name: 'islamic.product' }) || '';
   const event = useWatch({ control, name: 'islamic.event' }) || '';
+  const contractId = useWatch({ control, name: 'islamic.contract_id' }) || '';
   const errs = errors.islamic;
   const events = eventsFor(product, products);
   const required = islamicRequiredFields(product, event);
   const isRequired = (key: IslamicContractFieldKey) => required.includes(key);
   const mark = (key: IslamicContractFieldKey) => (isRequired(key) ? ' *' : '');
   const scheduled = ISLAMIC_SCHEDULED_EVENTS.includes(event as IslamicEvent);
+  const movesAsset = ISLAMIC_ASSET_EVENTS.includes(event as IslamicEvent);
+  const assetId = useWatch({ control, name: 'islamic.asset_id' }) || '';
+
+  // The field is hidden on any other event, and the backend 422s an asset
+  // there, so a value left behind by an earlier choice is cleared, not sent.
+  useEffect(() => {
+    if (!movesAsset && assetId) setValue('islamic.asset_id', '');
+  }, [movesAsset, assetId, setValue]);
   const hint = verificationHint(event);
 
   const productField = register('islamic.product');
@@ -222,7 +235,20 @@ export function IslamicFields({ products }: { products: readonly LayerProduct[] 
                 {...register('islamic.supplier_iban')}
               />
             </Field>
+
+            {movesAsset ? (
+              <Field
+                label="Asset / invoice ID"
+                htmlFor="islamic.asset_id"
+                error={errs?.asset_id}
+                hint="The asset or invoice financed. Checked against every other registered contract naming it."
+              >
+                <input id="islamic.asset_id" className="field" {...register('islamic.asset_id')} />
+              </Field>
+            ) : null}
           </div>
+
+          {contractId ? <ContractLookup contractId={contractId} /> : null}
         </>
       ) : null}
     </div>

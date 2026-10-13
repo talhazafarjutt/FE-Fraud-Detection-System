@@ -33,6 +33,7 @@ const ISLAMIC_TYPOLOGIES = [
   'COMMODITY_ROUND_TRIP',
   'TAKAFUL_CLAIM_FRAUD',
   'CHARITY_DIVERSION',
+  'DOUBLE_FINANCING',
 ];
 
 export const ISLAMIC_PRODUCTS = [
@@ -119,6 +120,9 @@ const settlement: IslamicFixture = {
           // As the live layer sends it: the instalment the settlement is made at.
           instalment_no: 22,
           tenor: 36,
+          // A set-aside needs the contract registered and ACTIVE (mocks/contracts.ts).
+          contract_registered: true,
+          contract_status: 'ACTIVE',
         },
         added: [],
         set_aside: [
@@ -167,6 +171,8 @@ const repaymentFacts = {
   contract_id: 'MRB-2026-0412',
   instalment_no: 8,
   tenor: 36,
+  contract_registered: true,
+  contract_status: 'ACTIVE',
 };
 const repaymentFindings: LayerFindings = {
   [ISLAMIC]: {
@@ -296,6 +302,9 @@ const claimFacts = {
   contract_id: 'TKF-2026-0044',
   instalment_no: null,
   tenor: null,
+  // Never registered: checked against the transaction's labels only.
+  contract_registered: false,
+  contract_status: null,
 };
 const claimFindings: LayerFindings = {
   [ISLAMIC]: {
@@ -460,6 +469,8 @@ const rental: IslamicFixture = {
           contract_id: 'IJR-2025-0093',
           instalment_no: 14,
           tenor: 60,
+          contract_registered: true,
+          contract_status: 'ACTIVE',
         },
         added: [],
         set_aside: [

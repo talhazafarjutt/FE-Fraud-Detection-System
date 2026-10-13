@@ -18,6 +18,13 @@ export const layerFactsSchema = z
     contract_id: z.string().nullish(),
     instalment_no: z.number().nullish(),
     tenor: z.number().nullish(),
+    /**
+     * Whether the contract was found in the layer's contract register, and
+     * its registered status. Absent on scores recorded before the register
+     * existed — "unknown", not "not registered".
+     */
+    contract_registered: z.boolean().nullish(),
+    contract_status: z.string().nullish(),
   })
   .passthrough();
 export type LayerFacts = z.infer<typeof layerFactsSchema>;

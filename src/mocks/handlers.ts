@@ -1,5 +1,6 @@
 import { HttpResponse, http } from 'msw';
 import { TRANSITIONS, isKnownStatus } from '@/features/alerts/stateMachine';
+import { isValidIban, normaliseIban } from '@/lib/iban';
 import { countLabels, datasetWarnings } from '@/features/labelled-feedback/parts';
 import {
   ACCOUNT_SCOPES,
@@ -11,6 +12,16 @@ import {
   USER_FIXTURES,
 } from './fixtures';
 import { computeOverview } from './metrics';
+import {
+  CONTRACT_FIXTURES,
+  CONTRACT_STATUS_TRANSITIONS,
+  PAYMENT_FIXTURES,
+  contractDetail,
+  contractListItem,
+  contractOut,
+  type MockContract,
+  type MockPayment,
+} from './contracts';
 import {
   ACCOUNT_FIXTURES,
   ALERTS_PER_ACCOUNT,
@@ -63,6 +74,13 @@ const cases: MockCase[] = [...CASE_FIXTURES, ...ISLAMIC_CASES].map((entry) => ({
   ...entry,
   alerts: [...entry.alerts],
 }));
+/** The contract register and the payments seen on it, mutable like the rest. */
+const contracts: MockContract[] = CONTRACT_FIXTURES.map((entry) => ({
+  ...entry,
+  approved_payers: [...entry.approved_payers],
+}));
+const contractPayments: MockPayment[] = [...PAYMENT_FIXTURES];
+
 const auditLog = [...AUDIT_FIXTURES];
 let nextAuditId = Math.max(0, ...auditLog.map((row) => row.id)) + 1;
 
@@ -429,6 +447,162 @@ function toJsonl(rows: Record<string, unknown>[]): string {
   return rows.map((row) => JSON.stringify(row)).join('\n').concat('\n');
 }
 
+/* ------------------------------------------------------------------ *
+ * Contract register — civitas_islamic/register.py's rules, condensed.
+ * ------------------------------------------------------------------ */
+
+const CONTRACT_PRODUCT_CODES = ['MURABAHA', 'IJARA', 'MUSHARAKA', 'MUDARABA', 'SUKUK', 'TAKAFUL', 'QARD_HASAN'];
+const CONTRACT_STATUS_CODES = ['ACTIVE', 'SETTLED', 'CANCELLED', 'DEFAULTED'];
+const CONTRACT_FIELDS = [
+  'contract_id', 'product', 'customer_iban', 'supplier_iban', 'asset_id', 'contract_start', 'tenor',
+  'scheduled_amount', 'first_due_date', 'frequency_months', 'financed_amount', 'approved_payer_ibans',
+  'status', 'team',
+];
+
+type FieldProblem = { field: string; message: string; type: string };
+
+function reference(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.trim().length >= 1 && value.trim().length <= max ? value.trim() : null;
+}
+
+function isoDate(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
+}
+
+function money(value: unknown): string | null {
+  const text = typeof value === 'number' ? String(value) : value;
+  if (typeof text !== 'string') return null;
+  const [whole = '', fraction = '', ...rest] = text.split('.');
+  const digits = (part: string) => part.length > 0 && [...part].every((ch) => ch >= '0' && ch <= '9');
+  if (rest.length > 0 || !digits(whole) || (text.includes('.') && !digits(fraction)) || fraction.length > 2) {
+    return null;
+  }
+  if (Number(text) <= 0) return null;
+  return `${whole}.${fraction.padEnd(2, '0')}`;
+}
+
+function last4(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const iban = normaliseIban(value);
+  return isValidIban(iban) ? iban.slice(-4) : null;
+}
+
+function payers(value: unknown, errors: FieldProblem[]): { iban_last4: string }[] {
+  if (!Array.isArray(value)) {
+    errors.push({ field: 'approved_payer_ibans', message: 'must be a list of IBANs', type: 'value_error' });
+    return [];
+  }
+  if (value.length > 5) {
+    errors.push({ field: 'approved_payer_ibans', message: 'accepts at most 5 IBANs', type: 'value_error' });
+    return [];
+  }
+  const out: { iban_last4: string }[] = [];
+  value.forEach((entry, i) => {
+    const tail = last4(entry);
+    if (tail) out.push({ iban_last4: tail });
+    else errors.push({ field: `approved_payer_ibans.${i}`, message: 'must be a valid IBAN', type: 'value_error' });
+  });
+  return out;
+}
+
+/** A registration as stored, or the field errors that stop it. */
+function normaliseContract(
+  body: Record<string, unknown>,
+  team: string,
+): { contract: MockContract | null; errors: FieldProblem[] } {
+  const errors: FieldProblem[] = Object.keys(body)
+    .filter((key) => !CONTRACT_FIELDS.includes(key))
+    .map((key) => ({ field: key, message: 'is not a contract field', type: 'extra_forbidden' }));
+  const missing = (key: string) => {
+    if (body[key] === undefined || body[key] === null) {
+      errors.push({ field: key, message: 'is required', type: 'missing' });
+      return true;
+    }
+    return false;
+  };
+  const bad = (field: string, message: string) => errors.push({ field, message, type: 'value_error' });
+
+  const contractId = missing('contract_id') ? null : reference(body['contract_id'], 64);
+  if (body['contract_id'] != null && !contractId) bad('contract_id', 'must be a string of 1-64 characters');
+
+  let product: string | null = null;
+  if (!missing('product')) {
+    const code = String(body['product']).trim().toUpperCase();
+    if (code === 'ZAKAT') bad('product', 'ZAKAT is a payment, not a contract');
+    else if (!CONTRACT_PRODUCT_CODES.includes(code)) bad('product', `must be one of ${CONTRACT_PRODUCT_CODES.join(', ')}`);
+    else product = code;
+  }
+
+  const customer = missing('customer_iban') ? null : last4(body['customer_iban']);
+  if (body['customer_iban'] != null && !customer) bad('customer_iban', 'must be a valid IBAN');
+  const supplier = body['supplier_iban'] == null ? null : last4(body['supplier_iban']);
+  if (body['supplier_iban'] != null && !supplier) bad('supplier_iban', 'must be a valid IBAN');
+
+  const asset = body['asset_id'] == null ? null : reference(body['asset_id'], 64);
+  if (body['asset_id'] != null && !asset) bad('asset_id', 'must be a string of 1-64 characters');
+
+  const start = missing('contract_start') ? null : isoDate(body['contract_start']);
+  if (body['contract_start'] != null && !start) bad('contract_start', 'must be an ISO date (YYYY-MM-DD)');
+  const firstDue = body['first_due_date'] == null ? null : isoDate(body['first_due_date']);
+  if (body['first_due_date'] != null && !firstDue) bad('first_due_date', 'must be an ISO date (YYYY-MM-DD)');
+  if (start && firstDue && firstDue < start) bad('first_due_date', 'must not be before contract_start');
+
+  const tenor = body['tenor'] == null ? null : Number(body['tenor']);
+  if (tenor !== null && !(Number.isInteger(tenor) && tenor >= 1 && tenor <= 1200)) {
+    bad('tenor', 'must be an integer from 1 to 1200');
+  }
+  const scheduled = body['scheduled_amount'] == null ? null : money(body['scheduled_amount']);
+  if (body['scheduled_amount'] != null && !scheduled) {
+    bad('scheduled_amount', 'must be a positive amount with at most 2 decimals');
+  }
+  const financed = body['financed_amount'] == null ? null : money(body['financed_amount']);
+  if (body['financed_amount'] != null && !financed) {
+    bad('financed_amount', 'must be a positive amount with at most 2 decimals');
+  }
+  const frequency = body['frequency_months'] == null ? 1 : Number(body['frequency_months']);
+  if (![1, 3, 6, 12].includes(frequency)) bad('frequency_months', 'must be one of 1, 3, 6, 12');
+
+  const approved = body['approved_payer_ibans'] == null ? [] : payers(body['approved_payer_ibans'], errors);
+  const status = body['status'] == null ? 'ACTIVE' : String(body['status']).trim().toUpperCase();
+  if (!CONTRACT_STATUS_CODES.includes(status)) bad('status', `must be one of ${CONTRACT_STATUS_CODES.join(', ')}`);
+
+  if (errors.length > 0 || !contractId || !product || !customer || !start) return { contract: null, errors };
+  const now = new Date().toISOString();
+  return {
+    errors,
+    contract: {
+      contract_id: contractId,
+      product,
+      status,
+      team,
+      customer_iban_last4: customer,
+      supplier_iban_last4: supplier,
+      asset_id: asset,
+      contract_start: start,
+      tenor: tenor ?? null,
+      scheduled_amount: scheduled,
+      first_due_date: firstDue,
+      frequency_months: frequency,
+      financed_amount: financed,
+      approved_payers: approved,
+      created_at: now,
+      updated_at: now,
+    },
+  };
+}
+
+function contractInvalid(errors: FieldProblem[]) {
+  return problem(422, 'Validation failed', 'The contract is not valid.', { errors });
+}
+
+/** The machine client's own team is "machine"; it registers into the demo's team. */
+function registeringTeam(session: { team: string }, requested: unknown): string {
+  if (typeof requested === 'string' && requested) return requested;
+  return session.team === 'machine' ? 'team-alpha' : session.team;
+}
+
 export const handlers = [
   http.get('*/healthz', () =>
     HttpResponse.json({ status: 'ok', version: 'mock', checks: {} }),
@@ -675,7 +849,12 @@ export const handlers = [
       });
     }
 
-    const body = (await request.json()) as { amount?: string; external_ref?: string };
+    const body = (await request.json()) as {
+      amount?: string;
+      external_ref?: string;
+      booked_at?: string;
+      metadata?: Record<string, unknown>;
+    };
     const amount = Number(body.amount ?? '0');
     // Big transfers score high, so "Load sample: structuring" raises a case.
     const probability = Number(Math.min(0.98, 0.18 + amount / 60_000).toFixed(4));
@@ -757,6 +936,30 @@ export const handlers = [
       dst_account_last4: '9682',
     };
 
+    // A payment naming a registered contract shows on that contract's page.
+    const contractId = body.metadata?.['contract_id'];
+    const registered = contracts.find((c) => c.contract_id === contractId);
+    if (registered) {
+      const instalment = body.metadata?.['instalment_no'];
+      contractPayments.push({
+        contract_id: registered.contract_id,
+        team: registered.team,
+        transaction_id: transactionId,
+        booked_at: body.booked_at ?? new Date().toISOString(),
+        amount: body.amount ?? '0.00',
+        currency: 'AED',
+        event: typeof body.metadata?.['event'] === 'string' ? (body.metadata['event'] as string) : null,
+        instalment_no: typeof instalment === 'number' ? instalment : null,
+        risk_score: Math.round(probability * 1000) / 10,
+        risk_level: risk.risk_level,
+        alert_id: alertRef?.alert_id ?? null,
+        alert_severity: alertRef?.severity ?? null,
+        alert_status: alertRef?.status ?? null,
+        rules_added: [],
+        rules_set_aside: [],
+      });
+    }
+
     const payload = {
       transaction_id: transactionId,
       scoring: 'COMPLETE',
@@ -814,6 +1017,89 @@ export const handlers = [
         alerts.filter((alert) => visibleTo(session, alert.team)),
         cases,
       ),
+    );
+  }),
+
+  http.post('*/v1/islamic/contracts', async ({ request }) => {
+    const guard = requireScope(request, 'transactions:write');
+    if (guard.error) return guard.error;
+    const body = (await request.json()) as Record<string, unknown>;
+    const { contract, errors } = normaliseContract(body ?? {}, registeringTeam(guard.session, body?.['team']));
+    if (!contract) return contractInvalid(errors);
+    if (contracts.some((entry) => entry.contract_id === contract.contract_id)) {
+      return problem(409, 'Conflict', `Contract ${contract.contract_id} is already registered.`);
+    }
+    contracts.unshift(contract);
+    return HttpResponse.json(contractOut(contract), { status: 201 });
+  }),
+
+  http.patch('*/v1/islamic/contracts/:contractId', async ({ request, params }) => {
+    const guard = requireScope(request, 'transactions:write');
+    if (guard.error) return guard.error;
+    const entry = contracts.find((c) => c.contract_id === String(params['contractId']));
+    if (!entry) return problem(404, 'Not found', 'No such contract is registered.');
+    const body = ((await request.json()) ?? {}) as Record<string, unknown>;
+    const errors: FieldProblem[] = Object.keys(body)
+      .filter((key) => key !== 'status' && key !== 'approved_payer_ibans')
+      .map((key) => ({ field: key, message: 'terms are immutable once registered', type: 'value_error' }));
+    const approved =
+      body['approved_payer_ibans'] == null ? null : payers(body['approved_payer_ibans'], errors);
+    const status = body['status'] == null ? null : String(body['status']).trim().toUpperCase();
+    if (status !== null && !CONTRACT_STATUS_CODES.includes(status)) {
+      errors.push({ field: 'status', message: `must be one of ${CONTRACT_STATUS_CODES.join(', ')}`, type: 'value_error' });
+    }
+    if (errors.length > 0) return contractInvalid(errors);
+    if (['SETTLED', 'CANCELLED'].includes(entry.status)) {
+      return problem(409, 'Conflict', `Contract ${entry.contract_id} is ${entry.status} and does not change.`);
+    }
+    if (status !== null && status !== entry.status) {
+      if (!(CONTRACT_STATUS_TRANSITIONS[entry.status] ?? []).includes(status)) {
+        return problem(409, 'Conflict', `A ${entry.status} contract cannot become ${status}.`);
+      }
+      entry.status = status;
+    }
+    if (approved) entry.approved_payers = approved;
+    entry.updated_at = new Date().toISOString();
+    return HttpResponse.json(contractOut(entry));
+  }),
+
+  http.get('*/v1/islamic/contracts', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status');
+    const product = url.searchParams.get('product');
+    const q = url.searchParams.get('q')?.toLowerCase();
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 50) || 50));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0);
+    const visible = contracts.filter(
+      (c) =>
+        visibleTo(session, c.team) &&
+        (!status || c.status === status) &&
+        (!product || c.product === product) &&
+        (!q || c.contract_id.toLowerCase().includes(q)),
+    );
+    const payments = contractPayments.filter((p) => visibleTo(session, p.team));
+    return HttpResponse.json({
+      items: visible.slice(offset, offset + limit).map((c) => contractListItem(c, payments)),
+      total: visible.length,
+      limit,
+      offset,
+    });
+  }),
+
+  http.get('*/v1/islamic/contracts/:contractId', ({ request, params }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    const entry = contracts.find((c) => c.contract_id === String(params['contractId']));
+    // Another team's contract is a 404, not a 403: its existence is not disclosed.
+    if (!entry || !visibleTo(session, entry.team)) {
+      return problem(404, 'Not found', 'Not registered, or another team’s.');
+    }
+    return HttpResponse.json(
+      contractDetail(entry, contractPayments.filter((p) => visibleTo(session, p.team))),
     );
   }),
 

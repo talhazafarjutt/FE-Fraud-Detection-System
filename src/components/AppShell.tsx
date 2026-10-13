@@ -5,6 +5,7 @@ import { teamLabel } from '@/lib/format';
 import { useAuth } from '@/auth/AuthProvider';
 import { roleLabel } from '@/auth/tokenStore';
 import { LayerBadges } from '@/features/layers/LayerBadges';
+import { ISLAMIC_LAYER, useLayers } from '@/features/layers/useMeta';
 import { ErrorBoundary } from './ErrorBoundary';
 import { StatusDot } from './StatusDot';
 import { ThemeToggle } from './ThemeToggle';
@@ -19,6 +20,11 @@ interface NavItem {
    * into a permissions error is worse than not offering it.
    */
   scope: string;
+  /**
+   * Offered only while this layer is on (`meta.layers`). A section a layer
+   * serves would otherwise 404 on a deployment that runs without it.
+   */
+  layer?: string;
 }
 
 /**
@@ -35,6 +41,8 @@ const NAV: NavItem[] = [
   { to: '/network', label: 'Network', scope: 'alerts:read' },
   { to: '/entities', label: 'Entities', scope: 'entities:read' },
   { to: '/transactions', label: 'Transactions', scope: 'transactions:read' },
+  // The Islamic layer's contract register: read-only here, the bank writes it.
+  { to: '/contracts', label: 'Contracts', scope: 'alerts:read', layer: ISLAMIC_LAYER },
   { to: '/cases', label: 'Cases', scope: 'alerts:read' },
   // The trail describes the analysts, so they do not get to read it.
   { to: '/audit', label: 'Audit', scope: 'audit:read' },
@@ -56,10 +64,13 @@ function Wordmark() {
 export function AppShell() {
   const { session, hasScope, signOut } = useAuth();
   const navigate = useNavigate();
+  const layers = useLayers();
 
   // ADMIN holds users:manage and audit:read only — deliberately no case access.
   // The alerts nav item is therefore absent for an admin, not disabled.
-  const items = NAV.filter((item) => hasScope(item.scope));
+  const items = NAV.filter(
+    (item) => hasScope(item.scope) && (!item.layer || layers.isActive(item.layer)),
+  );
 
   const role = roleLabel(session?.scopes ?? []);
   // alerts:read:all is cross-team visibility. Without it the server silently

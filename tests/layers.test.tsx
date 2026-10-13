@@ -109,6 +109,8 @@ describe('layer contract (live captures)', () => {
       'COMMODITY_ROUND_TRIP',
       'TAKAFUL_CLAIM_FRAUD',
       'CHARITY_DIVERSION',
+      // Added with the contract register (re-captured from the live API).
+      'DOUBLE_FINANCING',
     ]);
     // A product without a code is dropped, not fatal.
     expect(metaSchema.parse({ ...WIRE_META_ON, products: [{ label: 'x' }] }).products).toEqual([]);

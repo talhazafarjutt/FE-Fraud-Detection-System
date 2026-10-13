@@ -27,6 +27,10 @@ const TransactionListPage = lazyRoute('TransactionListPage', () => import('@/fea
 const TransactionSubmitPage = lazyRoute('TransactionSubmitPage', () => import('@/features/transactions/TransactionsPage'));
 const UsersPage = lazyRoute('UsersPage', () => import('@/features/users/UsersPage'));
 
+// The Islamic layer's contract register — read-only; the nav offers it only with the layer on.
+const ContractsPage = lazyRoute('ContractsPage', () => import('@/features/contracts/ContractsPage'));
+const ContractDetailPage = lazyRoute('ContractDetailPage', () => import('@/features/contracts/ContractDetailPage'));
+
 // The investigation layer — /v1/cases and friends, live on the local API.
 const CasesPage = lazyRoute('CasesPage', () => import('@/features/cases/CasesPage'));
 const CaseDetailPage = lazyRoute('CaseDetailPage', () => import('@/features/cases/CaseDetailPage'));
@@ -81,6 +85,11 @@ export const APP_ROUTES: RouteSpec[] = [
   {
     path: 'transactions/submit',
     element: guarded('transactions:read', <TransactionSubmitPage />, 'Submit a transaction'),
+  },
+  { path: 'contracts', element: guarded('alerts:read', <ContractsPage />, 'Contracts') },
+  {
+    path: 'contracts/:contractId',
+    element: guarded('alerts:read', <ContractDetailPage />, 'Contract'),
   },
   { path: 'investigations', element: guarded('alerts:read', <InvestigationsPage />, 'Investigations') },
   { path: 'cases', element: guarded('alerts:read', <CasesPage />, 'Cases') },

@@ -1,10 +1,13 @@
+import { Link, useInRouterContext } from 'react-router-dom';
 import type {
   KeptEvidence,
+  LayerFacts,
   LayerFinding,
   LayerFindings as Findings,
 } from '@/api/schemas/layers';
 import type { LayerProduct } from '@/api/schemas/meta';
 import { cx } from '@/components/primitives';
+import { contractPath } from '@/features/contracts/parts';
 import { formatRiskScore } from '@/lib/risk';
 import { layerLabel } from './facts';
 import { ProductChip } from './ProductChip';
@@ -51,9 +54,7 @@ function LayerBlock({
         <div className="flex flex-wrap items-center gap-3">
           <span className="mono-label text-ultra">{name}</span>
           <ProductChip facts={facts} layer={layer} products={products} />
-          {facts.contract_id ? (
-            <span className="font-mono text-[11px] text-ink-3">Contract {facts.contract_id}</span>
-          ) : null}
+          {facts.contract_id ? <ContractRef facts={facts} contractId={facts.contract_id} /> : null}
         </div>
         <ScoreShift before={finding.score_before} after={finding.score_after} />
       </div>
@@ -103,6 +104,48 @@ function LayerBlock({
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * The contract the layer read, and whether the register knew it. A set-aside
+ * needs a registered, ACTIVE contract; an unregistered one is checked against
+ * its labels only. Scores recorded before the register existed carry neither
+ * fact, and then nothing is claimed either way.
+ */
+function ContractRef({ facts, contractId }: { facts: LayerFacts; contractId: string }) {
+  const inRouter = useInRouterContext();
+  const registered = facts.contract_registered;
+  const label = `Contract ${contractId}`;
+  return (
+    <>
+      {inRouter && registered !== false ? (
+        <Link
+          to={contractPath(contractId)}
+          className="font-mono text-[11px] text-ink-3 underline decoration-rule underline-offset-2 hover:text-ultra"
+          title="Open this contract in the register"
+        >
+          {label}
+        </Link>
+      ) : (
+        <span className="font-mono text-[11px] text-ink-3">{label}</span>
+      )}
+      {registered === true ? (
+        <span
+          className="inline-flex border border-sage px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag text-sage"
+          title="Checked against the contract as the bank registered it"
+        >
+          Contract registered{facts.contract_status ? ` · ${facts.contract_status}` : ''}
+        </span>
+      ) : registered === false ? (
+        <span
+          className="inline-flex border border-dashed border-rule px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag text-ink-3"
+          title="Checked against the transaction's labels only; a false-alarm set-aside needs a registered contract"
+        >
+          Contract not registered
+        </span>
+      ) : null}
+    </>
   );
 }
 

@@ -1,7 +1,8 @@
+import type { ContractRegistration } from '@/api/schemas/contracts';
 import type { Risk, TransactionFormValues } from '@/api/schemas/transactions';
 
 /**
- * Twenty-one Islamic-first scenarios against the live engine: seven legitimate
+ * Twenty-six Islamic-first scenarios against the live engine: seven legitimate
  * contracts, each the twin of a fraud pattern; eight fraud scenarios (F7 is a
  * warning-only CONTRACT_INCOHERENT finding that should NOT raise an alert on
  * its own); three "signal only" warnings (W1-W3) where a risk-signal rule
@@ -9,7 +10,12 @@ import type { Risk, TransactionFormValues } from '@/api/schemas/transactions';
  * with nothing corroborating it to HIGH, so it stays a warning rather than an
  * alert; and three false-alarm checks (V1-V3) proving a set-aside removes only
  * the core warning the verified contract explains — never an unverified one,
- * never network, anomaly or entity evidence. Core's own network evidence can still open an alert on any sample
+ * never network, anomaly or entity evidence; and five contract-register
+ * scenarios (R1-R5). A set-aside now needs the contract REGISTERED and ACTIVE,
+ * so every sample that expects one (L2, L3, V3) registers its contract first,
+ * and V1/V2 register terms that make the verification fail. Contract ids,
+ * like IBANs, are fresh per load, so a reload never hits "already registered".
+ * Core's own network evidence can still open an alert on any sample
  * regardless of the layer's severity (verified against the live API — see
  * W3's note below for where that almost, but does not quite, apply here).
  *
@@ -60,9 +66,18 @@ export function keptOnVerdict(risk: Risk): string[] {
   return [...rules, ...network, ...(risk.anomaly?.is_anomaly ? ['anomaly'] : [])];
 }
 
+/**
+ * One thing a scenario does before the form is filled: register a contract
+ * in the Islamic layer's register (as the bank's system would), or submit a
+ * transaction. Both go out under the ingest session's bearer, in order.
+ */
+export type SetupStep =
+  | { kind: 'contract'; contract: ContractRegistration }
+  | { kind: 'transaction'; values: TransactionFormValues };
+
 export interface SampleScenario {
-  /** Transactions submitted, in order, before the form is filled. */
-  setup: TransactionFormValues[];
+  /** Steps run, in order, before the form is filled; the first failure stops the rest. */
+  setup: SetupStep[];
   /** The transaction the form is filled with. Never auto-submitted. */
   final: TransactionFormValues;
 }
@@ -70,7 +85,7 @@ export interface SampleScenario {
 export interface Sample {
   id: string;
   label: string;
-  group: 'legitimate' | 'fraud' | 'warning' | 'check';
+  group: 'legitimate' | 'fraud' | 'warning' | 'check' | 'register';
   summary: string;
   expected: SampleExpectation;
   hasSetup: boolean;
@@ -98,6 +113,20 @@ function localDateTime(offsetSeconds: number): string {
 /** An ISO date `offsetDays` from now, in the UTC day `booked_at`'s instant falls on. */
 function isoDateOffset(offsetDays: number): string {
   return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * `months` calendar months from an ISO date, the day clamped to the month's
+ * length — civitas_islamic/schedule.py add_months, which places instalment n
+ * at (n - 1) x frequency months after the first due date.
+ */
+function addMonthsIso(iso: string, months: number): string {
+  const [year = 0, month = 1, day = 1] = iso.split('-').map(Number);
+  const index = month - 1 + months;
+  const y = year + Math.floor(index / 12);
+  const m = ((index % 12) + 12) % 12;
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(day, last))).toISOString().slice(0, 10);
 }
 
 /* ------------------------------------------------------------------ *
@@ -220,6 +249,7 @@ function emptyIslamic(): TransactionFormValues['islamic'] {
     due_date: '',
     customer_iban: '',
     supplier_iban: '',
+    asset_id: '',
   };
 }
 
@@ -254,6 +284,33 @@ function txn(spec: TxnSpec): TransactionFormValues {
 
 function noSetup(final: TransactionFormValues): SampleScenario {
   return { setup: [], final };
+}
+
+function txnStep(values: TransactionFormValues): SetupStep {
+  return { kind: 'transaction', values };
+}
+
+/**
+ * Registers the contract a transaction's labels describe, so the register and
+ * the labels agree term for term (any difference is CONTRACT_MISMATCH).
+ * `extra` adds what only the register holds: first due date, status,
+ * approved payers, financed amount — or, deliberately, a contradicting term.
+ */
+function contractStep(
+  terms: Partial<TransactionFormValues['islamic']>,
+  extra: Partial<ContractRegistration> = {},
+): SetupStep {
+  const contract: ContractRegistration = {
+    contract_id: String(terms.contract_id ?? ''),
+    product: String(terms.product ?? ''),
+    customer_iban: String(terms.customer_iban ?? ''),
+    contract_start: String(terms.contract_start ?? ''),
+  };
+  if (terms.supplier_iban) contract.supplier_iban = String(terms.supplier_iban);
+  if (terms.asset_id) contract.asset_id = String(terms.asset_id);
+  if (typeof terms.tenor === 'number') contract.tenor = terms.tenor;
+  if (terms.scheduled_amount) contract.scheduled_amount = String(terms.scheduled_amount);
+  return { kind: 'contract', contract: { ...contract, ...extra } };
 }
 
 /* ------------------------------------------------------------------ *
@@ -307,6 +364,23 @@ function sampleL1(): Sample {
   };
 }
 
+/**
+ * Ahmed's Murabaha, settled early at instalment 13 of 48: 4,350 x (48 - 13 + 1)
+ * = 156,600 is what the schedule says is left. Shared by L2, V3 and R4.
+ */
+function ahmedSettlementTerms(ahmed: Account): Partial<TransactionFormValues['islamic']> {
+  return {
+    product: 'MURABAHA',
+    event: 'EARLY_SETTLEMENT',
+    contract_id: reference('MRB-AHMED'),
+    instalment_no: 13,
+    tenor: 48,
+    scheduled_amount: '4350.00',
+    contract_start: isoDateOffset(-370),
+    customer_iban: ahmed.iban,
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * L2 — Ahmed's early settlement, draining his own account by design.
  * Twin of F3 (the same settlement, funded by a fan-in of strangers).
@@ -318,9 +392,9 @@ function sampleL2(): Sample {
     label: 'L2 — Early settlement, own account',
     group: 'legitimate',
     summary:
-      'Ahmed settles his Murabaha early for 156,600 from his own account — exactly the 36 instalments of 4,350 left from instalment 13 of 48 — emptying it by design. The schedule verifies the settlement: expect ORIGIN_ACCOUNT_DRAIN set aside and no alert.',
+      'Ahmed settles his Murabaha early for 156,600 from his own account — exactly the 36 instalments of 4,350 left from instalment 13 of 48 — emptying it by design. The bank registered the contract first, and its registered schedule verifies the settlement: expect ORIGIN_ACCOUNT_DRAIN set aside and no alert.',
     expected: { alert: false, setAside: ['ORIGIN_ACCOUNT_DRAIN'] },
-    hasSetup: false,
+    hasSetup: true,
     generate: () => {
       const ahmed = account({
         bankCode: '033',
@@ -333,6 +407,7 @@ function sampleL2(): Sample {
         openedOffsetDays: -3000,
         holder: { type: 'COMPANY', name: 'Al Ittihad Islamic Finance', refPrefix: 'AIIF' },
       });
+      const terms = ahmedSettlementTerms(ahmed);
       const final = txn({
         refPrefix: 'DEMO-MRB-SETTLE-OWN',
         amount: '156600.00',
@@ -341,19 +416,12 @@ function sampleL2(): Sample {
         receiverBalance: '2200000.00',
         source: ahmed,
         destination: settlements,
-        islamic: {
-          product: 'MURABAHA',
-          event: 'EARLY_SETTLEMENT',
-          contract_id: reference('MRB-AHMED'),
-          // 4,350 x (48 - 13 + 1) = 156,600: what the schedule says is left.
-          instalment_no: 13,
-          tenor: 48,
-          scheduled_amount: '4350.00',
-          contract_start: isoDateOffset(-370),
-          customer_iban: ahmed.iban,
-        },
+        islamic: terms,
       });
-      return noSetup(final);
+      return {
+        setup: [contractStep(terms, { first_due_date: isoDateOffset(-340) })],
+        final,
+      };
     },
   };
 }
@@ -369,7 +437,7 @@ function sampleL3(): Sample {
     label: 'L3 — Scheduled instalment, with history',
     group: 'legitimate',
     summary:
-      "Sara's 5,000 instalment, due today, matches the contract schedule in amount and date, after two ordinary rent payments from the same account. Expect ROUND_AMOUNT_BURST set aside and no alert.",
+      "Sara's 5,000 instalment, due today on her registered contract's schedule (first due nine months ago, monthly), matches it in amount and date, after two ordinary rent payments from the same account. Expect ROUND_AMOUNT_BURST set aside and no alert.",
     expected: { alert: false, setAside: ['ROUND_AMOUNT_BURST'] },
     hasSetup: true,
     generate: () => {
@@ -409,6 +477,17 @@ function sampleL3(): Sample {
           destination: landlord,
         }),
       ];
+      const terms = {
+        product: 'MURABAHA',
+        event: 'INSTALMENT',
+        contract_id: reference('MRB-SARA'),
+        instalment_no: 10,
+        tenor: 40,
+        scheduled_amount: '5000.00',
+        contract_start: isoDateOffset(-300),
+        due_date: isoDateOffset(0),
+        customer_iban: sara.iban,
+      } as const;
       const final = txn({
         refPrefix: 'DEMO-MRB-INSTALMENT',
         amount: '5000.00',
@@ -417,19 +496,13 @@ function sampleL3(): Sample {
         receiverBalance: '1250340.00',
         source: sara,
         destination: collections,
-        islamic: {
-          product: 'MURABAHA',
-          event: 'INSTALMENT',
-          contract_id: reference('MRB-SARA'),
-          instalment_no: 10,
-          tenor: 40,
-          scheduled_amount: '5000.00',
-          contract_start: isoDateOffset(-300),
-          due_date: isoDateOffset(0),
-          customer_iban: sara.iban,
-        },
+        islamic: terms,
       });
-      return { setup, final };
+      // Instalment 10 falls due nine months after the first: today.
+      const registered = contractStep(terms, {
+        first_due_date: addMonthsIso(isoDateOffset(0), -9),
+      });
+      return { setup: [registered, ...setup.map(txnStep)], final };
     },
   };
 }
@@ -778,7 +851,7 @@ function sampleF3(): Sample {
           customer_iban: omar.iban,
         },
       });
-      return { setup, final };
+      return { setup: setup.map(txnStep), final };
     },
   };
 }
@@ -936,7 +1009,7 @@ function sampleF6(): Sample {
         destination: charity,
         islamic: { product: 'ZAKAT', event: 'CHARITY' },
       });
-      return { setup, final };
+      return { setup: setup.map(txnStep), final };
     },
   };
 }
@@ -1216,7 +1289,7 @@ function sampleW3(): Sample {
         destination: mosque,
         islamic: { product: 'ZAKAT', event: 'CHARITY' },
       });
-      return { setup, final };
+      return { setup: setup.map(txnStep), final };
     },
   };
 }
@@ -1245,18 +1318,28 @@ function sampleV1(): Sample {
     label: 'V1 — Settlement the schedule does not explain',
     group: 'check',
     summary:
-      'Layla settles 156,600 early from her own account, emptying it, but her contract shows 200,000 ' +
-      'still to pay (40 instalments of 5,000 left from instalment 9 of 48). The schedule does not ' +
-      'explain the drain, so the core warning stays: expect ORIGIN_ACCOUNT_DRAIN kept, nothing set ' +
-      'aside, and an alert.',
+      'Layla settles 156,600 early from her own account, emptying it, but her registered contract ' +
+      'shows 200,000 still to pay (40 instalments of 5,000 left from instalment 9 of 48). The ' +
+      'registered schedule does not explain the drain, so the core warning stays: expect ' +
+      'ORIGIN_ACCOUNT_DRAIN kept, nothing set aside, and an alert.',
     expected: { alert: true, kept: ['ORIGIN_ACCOUNT_DRAIN'] },
-    hasSetup: false,
+    hasSetup: true,
     generate: () => {
       const layla = account({
         bankCode: '033',
         openedOffsetDays: -1300,
         holder: { name: 'Layla Haddad', refPrefix: 'LAYLA' },
       });
+      const terms = {
+        product: 'MURABAHA',
+        event: 'EARLY_SETTLEMENT',
+        contract_id: reference('MRB-LAYLA'),
+        instalment_no: 9,
+        tenor: 48,
+        scheduled_amount: '5000.00',
+        contract_start: isoDateOffset(-250),
+        customer_iban: layla.iban,
+      } as const;
       const final = txn({
         refPrefix: 'DEMO-MRB-SETTLE-SHORT',
         amount: '156600.00',
@@ -1265,18 +1348,13 @@ function sampleV1(): Sample {
         receiverBalance: '2200000.00',
         source: layla,
         destination: settlementAccount(),
-        islamic: {
-          product: 'MURABAHA',
-          event: 'EARLY_SETTLEMENT',
-          contract_id: reference('MRB-LAYLA'),
-          instalment_no: 9,
-          tenor: 48,
-          scheduled_amount: '5000.00',
-          contract_start: isoDateOffset(-250),
-          customer_iban: layla.iban,
-        },
+        islamic: terms,
       });
-      return noSetup(final);
+      // Registered, and agreeing with every label — but 5,000 x 40 is 200,000, not 156,600.
+      return {
+        setup: [contractStep(terms, { first_due_date: isoDateOffset(-220) })],
+        final,
+      };
     },
   };
 }
@@ -1287,9 +1365,9 @@ function sampleV2(): Sample {
     label: 'V2 — Instalment paid three months early',
     group: 'check',
     summary:
-      "Sara pays a 5,000 instalment that is not due for another 90 days, after two ordinary rent " +
-      'payments. The amount matches the schedule, the date does not, so the round-amount warning ' +
-      'stays: expect ROUND_AMOUNT_BURST kept, nothing set aside, and no alert.',
+      "Sara pays a 5,000 instalment that her registered schedule says is not due for another 90 " +
+      'days, after two ordinary rent payments. The amount matches the schedule, the date does not, so ' +
+      'the round-amount warning stays: expect ROUND_AMOUNT_BURST kept, nothing set aside, and no alert.',
     expected: { alert: false, kept: ['ROUND_AMOUNT_BURST'] },
     hasSetup: true,
     generate: () => {
@@ -1323,6 +1401,17 @@ function sampleV2(): Sample {
           destination: landlord,
         }),
       ];
+      const terms = {
+        product: 'MURABAHA',
+        event: 'INSTALMENT',
+        contract_id: reference('MRB-SARA'),
+        instalment_no: 13,
+        tenor: 40,
+        scheduled_amount: '5000.00',
+        contract_start: isoDateOffset(-300),
+        due_date: isoDateOffset(90),
+        customer_iban: sara.iban,
+      } as const;
       const final = txn({
         refPrefix: 'DEMO-MRB-INSTALMENT-EARLY',
         amount: '5000.00',
@@ -1331,19 +1420,14 @@ function sampleV2(): Sample {
         receiverBalance: '1250340.00',
         source: sara,
         destination: settlementAccount(),
-        islamic: {
-          product: 'MURABAHA',
-          event: 'INSTALMENT',
-          contract_id: reference('MRB-SARA'),
-          instalment_no: 13,
-          tenor: 40,
-          scheduled_amount: '5000.00',
-          contract_start: isoDateOffset(-300),
-          due_date: isoDateOffset(90),
-          customer_iban: sara.iban,
-        },
+        islamic: terms,
       });
-      return { setup, final };
+      // The register, not the label, dates instalment 13: twelve months after
+      // the first due date, which puts it about 90 days out.
+      const registered = contractStep(terms, {
+        first_due_date: addMonthsIso(isoDateOffset(90), -12),
+      });
+      return { setup: [registered, ...setup.map(txnStep)], final };
     },
   };
 }
@@ -1354,8 +1438,9 @@ function sampleV3(): Sample {
     label: 'V3 — Verified settlement right after a large inflow',
     group: 'check',
     summary:
-      "Ahmed's verified early settlement (156,600 = 36 x 4,350 left from instalment 13 of 48) leaves " +
-      'his own account seconds after a 150,000 transfer lands in it. The schedule explains the drain, ' +
+      "Ahmed's verified early settlement (156,600 = 36 x 4,350 left from instalment 13 of 48 on his " +
+      'registered contract) leaves his own account seconds after a 150,000 transfer lands in it. The ' +
+      'registered schedule explains the drain, ' +
       'so ORIGIN_ACCOUNT_DRAIN is set aside — but the pass-through the network analyzer sees is ' +
       'independent evidence, stays, and opens an alert on its own.',
     expected: { alert: true, setAside: ['ORIGIN_ACCOUNT_DRAIN'], kept: ['RAPID_PASS_THROUGH'] },
@@ -1382,6 +1467,7 @@ function sampleV3(): Sample {
           destination: ahmed,
         }),
       ];
+      const terms = ahmedSettlementTerms(ahmed);
       const final = txn({
         refPrefix: 'DEMO-MRB-SETTLE-INFLOW',
         amount: '156600.00',
@@ -1390,18 +1476,263 @@ function sampleV3(): Sample {
         receiverBalance: '2200000.00',
         source: ahmed,
         destination: settlementAccount(),
-        islamic: {
-          product: 'MURABAHA',
-          event: 'EARLY_SETTLEMENT',
-          contract_id: reference('MRB-AHMED'),
-          instalment_no: 13,
-          tenor: 48,
-          scheduled_amount: '4350.00',
-          contract_start: isoDateOffset(-370),
-          customer_iban: ahmed.iban,
-        },
+        islamic: terms,
       });
-      return { setup, final };
+      const registered = contractStep(terms, { first_due_date: isoDateOffset(-340) });
+      return { setup: [registered, ...setup.map(txnStep)], final };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Contract register. When the bank has registered a contract, the layer
+ * checks a transaction against the register rather than its labels: a
+ * payment on a closed contract, an asset financed twice, a declared payer,
+ * labels that contradict the register — and, without a registration, no
+ * false-alarm set-aside at all.
+ * ------------------------------------------------------------------ */
+
+function sampleR1(): Sample {
+  return {
+    id: 'r1-instalment-on-settled-contract',
+    label: 'R1 — Instalment on a settled contract',
+    group: 'register',
+    summary:
+      "An instalment arrives on Mariam's Murabaha, which the bank registered as SETTLED. No payment " +
+      'should move on a closed contract: expect PAYMENT_ON_CLOSED_CONTRACT (high) and an alert.',
+    expected: { alert: true, added: ['PAYMENT_ON_CLOSED_CONTRACT'], severity: 'HIGH' },
+    hasSetup: true,
+    generate: () => {
+      const mariam = account({
+        bankCode: '033',
+        openedOffsetDays: -2100,
+        holder: { name: 'Mariam Al Hosani', refPrefix: 'MARIAM' },
+      });
+      const terms = {
+        product: 'MURABAHA',
+        event: 'INSTALMENT',
+        contract_id: reference('MRB-MARIAM'),
+        instalment_no: 30,
+        tenor: 36,
+        scheduled_amount: '3812.40',
+        contract_start: isoDateOffset(-930),
+        customer_iban: mariam.iban,
+      } as const;
+      const final = txn({
+        refPrefix: 'DEMO-MRB-INSTALMENT-CLOSED',
+        amount: '3812.40',
+        bookedOffsetSeconds: 0,
+        senderBalance: '51800.00',
+        receiverBalance: '1250340.00',
+        source: mariam,
+        destination: settlementAccount(),
+        islamic: terms,
+      });
+      const registered = contractStep(terms, {
+        first_due_date: isoDateOffset(-900),
+        status: 'SETTLED',
+      });
+      return { setup: [registered], final };
+    },
+  };
+}
+
+function sampleR2(): Sample {
+  return {
+    id: 'r2-car-invoice-financed-twice',
+    label: 'R2 — Car invoice already financed',
+    group: 'register',
+    summary:
+      "The bank disburses 165,000 to a car dealer for Yousef's Murabaha, against an invoice it " +
+      "already financed six weeks ago under Omar's contract, which is still active. Expect " +
+      'DOUBLE_FINANCED_ASSET (high) and an alert.',
+    expected: { alert: true, added: ['DOUBLE_FINANCED_ASSET'], severity: 'HIGH' },
+    hasSetup: true,
+    generate: () => {
+      const omar = account({
+        bankCode: '033',
+        openedOffsetDays: -1500,
+        holder: { name: 'Omar Al Ketbi', refPrefix: 'OMAR' },
+      });
+      const yousef = account({
+        bankCode: '033',
+        openedOffsetDays: -1200,
+        holder: { name: 'Yousef Al Marri', refPrefix: 'YOUSEF' },
+      });
+      const dealer = account({
+        bankCode: '090',
+        openedOffsetDays: -2600,
+        holder: { type: 'COMPANY', name: 'Al Sahra Motors', refPrefix: 'SAHRA' },
+      });
+      const invoice = reference('INV-CAR');
+      const earlier = {
+        product: 'MURABAHA',
+        contract_id: reference('MRB-OMAR'),
+        tenor: 60,
+        scheduled_amount: '3150.00',
+        contract_start: isoDateOffset(-42),
+        customer_iban: omar.iban,
+        supplier_iban: dealer.iban,
+        asset_id: invoice,
+      } as const;
+      const terms = {
+        product: 'MURABAHA',
+        event: 'DISBURSEMENT',
+        contract_id: reference('MRB-YOUSEF'),
+        contract_start: isoDateOffset(-1),
+        customer_iban: yousef.iban,
+        supplier_iban: dealer.iban,
+        asset_id: invoice,
+      } as const;
+      const final = txn({
+        refPrefix: 'DEMO-MRB-DISBURSE-CAR',
+        amount: '165000.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '25000000.00',
+        receiverBalance: '840000.00',
+        source: settlementAccount(),
+        destination: dealer,
+        islamic: terms,
+      });
+      return {
+        setup: [
+          contractStep(earlier, {
+            first_due_date: isoDateOffset(-12),
+            financed_amount: '165000.00',
+          }),
+          contractStep(terms, { tenor: 60, financed_amount: '165000.00' }),
+        ],
+        final,
+      };
+    },
+  };
+}
+
+function sampleR3(): Sample {
+  return {
+    id: 'r3-instalment-paid-by-declared-father',
+    label: 'R3 — Instalment paid by her declared father',
+    group: 'register',
+    summary:
+      "W1's twin: Sara's father Rashid pays her instalment again, but this time the bank registered " +
+      'the contract with his account as an approved payer. A declared payer is not a third party: ' +
+      'expect no rule and no alert.',
+    expected: { alert: false },
+    hasSetup: true,
+    generate: () => {
+      const sara = account({
+        bankCode: '033',
+        openedOffsetDays: -900,
+        holder: { name: 'Sara Al Mazrouei', refPrefix: 'SARA' },
+      });
+      const father = account({
+        bankCode: '033',
+        openedOffsetDays: -4500,
+        holder: { name: 'Rashid Al Mazrouei', refPrefix: 'RASHID' },
+      });
+      const terms = {
+        product: 'MURABAHA',
+        event: 'INSTALMENT',
+        contract_id: reference('MRB-SARA'),
+        instalment_no: 8,
+        tenor: 36,
+        scheduled_amount: '4215.60',
+        contract_start: isoDateOffset(-240),
+        customer_iban: sara.iban,
+      } as const;
+      const final = txn({
+        refPrefix: 'DEMO-MRB-INSTALMENT-FAMILY',
+        amount: '4215.60',
+        bookedOffsetSeconds: 0,
+        senderBalance: '210000.00',
+        receiverBalance: '1250340.00',
+        source: father,
+        destination: settlementAccount(),
+        islamic: terms,
+      });
+      const registered = contractStep(terms, {
+        first_due_date: isoDateOffset(-210),
+        approved_payer_ibans: [father.iban],
+      });
+      return { setup: [registered], final };
+    },
+  };
+}
+
+function sampleR4(): Sample {
+  return {
+    id: 'r4-settlement-unregistered-contract',
+    label: 'R4 — Early settlement, contract not registered',
+    group: 'register',
+    summary:
+      "L2's twin: the same 156,600 settlement, emptying Ahmed's account, on a contract the bank never " +
+      'registered. The labels alone cannot verify it, so nothing is set aside: expect ' +
+      'ORIGIN_ACCOUNT_DRAIN kept and an alert.',
+    expected: { alert: true, kept: ['ORIGIN_ACCOUNT_DRAIN'] },
+    hasSetup: false,
+    generate: () => {
+      const ahmed = account({
+        bankCode: '033',
+        openedOffsetDays: -1400,
+        holder: { name: 'Ahmed Al Qasimi', refPrefix: 'AHMED' },
+      });
+      const final = txn({
+        refPrefix: 'DEMO-MRB-SETTLE-UNREGISTERED',
+        amount: '156600.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '156600.00',
+        receiverBalance: '2200000.00',
+        source: ahmed,
+        destination: settlementAccount(),
+        islamic: ahmedSettlementTerms(ahmed),
+      });
+      return noSetup(final);
+    },
+  };
+}
+
+function sampleR5(): Sample {
+  return {
+    id: 'r5-instalment-contradicts-register',
+    label: 'R5 — Instalment labels contradict the register',
+    group: 'register',
+    summary:
+      "Hana's instalment is labelled with a scheduled amount of 4,215.60, but the bank registered " +
+      '4,350.00 a month. The register wins and the contradiction is a risk signal on its own: expect ' +
+      'CONTRACT_MISMATCH as a MEDIUM warning, and no alert.',
+    expected: { alert: false, added: ['CONTRACT_MISMATCH'], severity: 'MEDIUM' },
+    hasSetup: true,
+    generate: () => {
+      const hana = account({
+        bankCode: '033',
+        openedOffsetDays: -1300,
+        holder: { name: 'Hana Al Nuaimi', refPrefix: 'HANA' },
+      });
+      const terms = {
+        product: 'MURABAHA',
+        event: 'INSTALMENT',
+        contract_id: reference('MRB-HANA'),
+        instalment_no: 6,
+        tenor: 48,
+        scheduled_amount: '4215.60',
+        contract_start: isoDateOffset(-180),
+        customer_iban: hana.iban,
+      } as const;
+      const final = txn({
+        refPrefix: 'DEMO-MRB-INSTALMENT-MISMATCH',
+        amount: '4215.60',
+        bookedOffsetSeconds: 0,
+        senderBalance: '38900.00',
+        receiverBalance: '1250340.00',
+        source: hana,
+        destination: settlementAccount(),
+        islamic: terms,
+      });
+      const registered = contractStep(terms, {
+        scheduled_amount: '4350.00',
+        first_due_date: isoDateOffset(-150),
+      });
+      return { setup: [registered], final };
     },
   };
 }
@@ -1428,6 +1759,11 @@ export const SAMPLES: readonly Sample[] = [
   sampleV1(),
   sampleV2(),
   sampleV3(),
+  sampleR1(),
+  sampleR2(),
+  sampleR3(),
+  sampleR4(),
+  sampleR5(),
 ];
 
 export const EMPTY_FORM: TransactionFormValues = {
@@ -1482,4 +1818,11 @@ export const EMPTY_FORM: TransactionFormValues = {
 };
 
 // Exported for tests only — not part of the page's public surface.
-export const __test__ = { freshAeIban, ibanCheckDigits, mod97, localDateTime, isoDateOffset };
+export const __test__ = {
+  freshAeIban,
+  ibanCheckDigits,
+  mod97,
+  localDateTime,
+  isoDateOffset,
+  addMonthsIso,
+};

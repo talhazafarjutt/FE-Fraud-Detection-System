@@ -161,7 +161,8 @@ export type IslamicContractFieldKey =
   | 'contract_start'
   | 'due_date'
   | 'customer_iban'
-  | 'supplier_iban';
+  | 'supplier_iban'
+  | 'asset_id';
 
 /**
  * Events that are one payment of a schedule and so may carry a due date —
@@ -173,6 +174,12 @@ export const ISLAMIC_SCHEDULED_EVENTS: readonly IslamicEvent[] = [
   'RENTAL',
   'PROFIT_DISTRIBUTION',
 ];
+
+/**
+ * Events that move the financed asset and so may name it (`asset_id`) —
+ * civitas_islamic/products.py ASSET_EVENTS. The backend 422s it on any other.
+ */
+export const ISLAMIC_ASSET_EVENTS: readonly IslamicEvent[] = ['DISBURSEMENT', 'ASSET_SALE'];
 
 /** Keys an event cannot be checked without — civitas_islamic/products.py EVENT_REQUIRES. */
 export const ISLAMIC_EVENT_REQUIRES: Record<IslamicEvent, readonly IslamicContractFieldKey[]> = {
@@ -194,7 +201,7 @@ export const ISLAMIC_PRODUCT_EVENT_EXTRA_REQUIRES: Partial<
   'MURABAHA:DISBURSEMENT': ['supplier_iban'],
 };
 
-/** The ten reserved keys. A free-form metadata row may not reuse one of them. */
+/** The eleven reserved keys. A free-form metadata row may not reuse one of them. */
 export const ISLAMIC_METADATA_KEYS: readonly string[] = [
   'product',
   'event',
@@ -206,6 +213,7 @@ export const ISLAMIC_METADATA_KEYS: readonly string[] = [
   'due_date',
   'customer_iban',
   'supplier_iban',
+  'asset_id',
 ];
 
 /** Every field an event of a product requires, contract_id included. */
@@ -253,6 +261,8 @@ export const islamicContractSchema = z
     due_date: z.string().optional().or(z.literal('')),
     customer_iban: optionalIbanField,
     supplier_iban: optionalIbanField,
+    /** The asset or invoice financed; DISBURSEMENT and ASSET_SALE only. */
+    asset_id: z.string().trim().max(64, 'At most 64 characters.').optional().or(z.literal('')),
   })
   .superRefine((contract, ctx) => {
     const { product, event } = contract;
@@ -280,6 +290,14 @@ export const islamicContractSchema = z
         code: z.ZodIssueCode.custom,
         path: ['due_date'],
         message: 'Only a scheduled payment (instalment, rental, profit distribution) has a due date.',
+      });
+    }
+
+    if (contract.asset_id && !ISLAMIC_ASSET_EVENTS.includes(event as IslamicEvent)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['asset_id'],
+        message: 'Only a disbursement or an asset sale names the asset.',
       });
     }
 
@@ -342,7 +360,7 @@ export const transactionFormSchema = z
         message: 'Metadata keys must be unique.',
       });
     }
-    // The Islamic contract section owns these ten keys; a free-form row
+    // The Islamic contract section owns these eleven keys; a free-form row
     // reusing one would silently collide with it in the merged payload.
     tx.metadata.forEach((entry, index) => {
       if (entry.key && ISLAMIC_METADATA_KEYS.includes(entry.key)) {

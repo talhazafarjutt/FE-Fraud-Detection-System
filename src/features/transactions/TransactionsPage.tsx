@@ -22,6 +22,7 @@ import { IslamicFields } from './IslamicFields';
 import { Field, FormSection } from './fields';
 import { buildTransactionPayload } from './payload';
 import { EMPTY_FORM, SAMPLES, type SampleExpectation } from './samples';
+import { SetupStepError, runSetup, stepNoun } from './setupRunner';
 import { SubmissionResult, type Submission } from './SubmissionResult';
 
 const TRANSACTION_TYPES = ['TRANSFER', 'CASH_OUT', 'CASH_IN', 'PAYMENT', 'DEBIT'] as const;
@@ -38,6 +39,7 @@ const ISLAMIC_METADATA_FIELD: Record<string, IslamicContractFieldKey | 'product'
   due_date: 'due_date',
   customer_iban: 'customer_iban',
   supplier_iban: 'supplier_iban',
+  asset_id: 'asset_id',
 };
 
 export default function TransactionsPage() {
@@ -62,8 +64,8 @@ export default function TransactionsPage() {
   const [expected, setExpected] = useState<SampleExpectation | null>(null);
   const [expectedLabel, setExpectedLabel] = useState<string | null>(null);
 
-  // A multi-step sample (L3, F3, F6) submits setup transactions before the
-  // form is filled. Tracked here so the page can show progress and refuse to
+  // A multi-step sample registers its contract and/or submits setup
+  // transactions before the form is filled. Tracked here so the page can show progress and refuse to
   // overlap two loads.
   const [setupProgress, setSetupProgress] = useState<{ total: number; done: number } | null>(
     null,
@@ -189,7 +191,7 @@ export default function TransactionsPage() {
     if (sample.hasSetup && !ingest) {
       pushError(
         new Error(
-          'This scenario needs to create setup transactions first. Open an ingest session above, then load it again.',
+          'This scenario registers its contract or submits setup transactions first. Open an ingest session above, then load it again.',
         ),
         'Cannot load this sample yet',
       );
@@ -201,15 +203,16 @@ export default function TransactionsPage() {
     if (scenario.setup.length > 0 && ingest) {
       setSetupProgress({ total: scenario.setup.length, done: 0 });
       try {
-        for (const [index, setupValues] of scenario.setup.entries()) {
-          const parsed = transactionFormSchema.parse(setupValues);
-          const body = buildTransactionPayload(parsed);
-          await createTransaction(body, crypto.randomUUID(), ingest.accessToken);
-          setSetupProgress({ total: scenario.setup.length, done: index + 1 });
-        }
+        await runSetup(scenario.setup, ingest.accessToken, (done, total) =>
+          setSetupProgress({ total, done }),
+        );
       } catch (error) {
         setSetupProgress(null);
-        pushError(error, `"${sample.label}" was not loaded — a setup transaction was refused`);
+        const failed = error instanceof SetupStepError ? error : null;
+        pushError(
+          failed ? failed.failure : error,
+          `"${sample.label}" was not loaded — a ${failed ? stepNoun(failed.step) : 'setup step'} was refused`,
+        );
         return;
       }
       setSetupProgress(null);
@@ -225,6 +228,7 @@ export default function TransactionsPage() {
   const fraudSamples = SAMPLES.filter((sample) => sample.group === 'fraud');
   const warningSamples = SAMPLES.filter((sample) => sample.group === 'warning');
   const checkSamples = SAMPLES.filter((sample) => sample.group === 'check');
+  const registerSamples = SAMPLES.filter((sample) => sample.group === 'register');
 
   return (
     <div className="space-y-10">
@@ -278,14 +282,20 @@ export default function TransactionsPage() {
                 </option>
               ))}
             </optgroup>
+            <optgroup label="Contract register">
+              {registerSamples.map((sample) => (
+                <option key={sample.id} value={sample.id}>
+                  {sample.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
       </header>
 
       {setupProgress ? (
         <p className="border border-amber px-4 py-3 font-mono text-[12px] uppercase tracking-tag text-amber">
-          Preparing scenario — submitted setup transaction {setupProgress.done} of{' '}
-          {setupProgress.total}…
+          Preparing scenario — setup step {setupProgress.done} of {setupProgress.total} done…
         </p>
       ) : null}
 

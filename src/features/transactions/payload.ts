@@ -12,7 +12,7 @@ import { normaliseAmount } from '@/lib/money';
  * Amounts go out as strings. They are never converted to a JS number anywhere
  * along this path.
  *
- * The Islamic contract section is a form concern only: on the wire its ten
+ * The Islamic contract section is a form concern only: on the wire its
  * fields are just more entries in `metadata`, exactly where
  * civitas_islamic/contract.py expects to find them. instalment_no and tenor go
  * out as JSON integers — the backend 422s a string ("8" is not 8).
@@ -53,7 +53,7 @@ function buildAccount(account: Account): Record<string, unknown> {
   return base;
 }
 
-/** The Islamic contract section's ten fields, as `metadata` entries. */
+/** The Islamic contract section's fields, as `metadata` entries. */
 function buildIslamicMetadata(islamic: IslamicContractParsed): Record<string, unknown> {
   if (!islamic.product) return {};
   const out: Record<string, unknown> = { product: islamic.product, event: islamic.event };
@@ -65,6 +65,7 @@ function buildIslamicMetadata(islamic: IslamicContractParsed): Record<string, un
   if (islamic.due_date) out['due_date'] = islamic.due_date;
   if (islamic.customer_iban) out['customer_iban'] = islamic.customer_iban;
   if (islamic.supplier_iban) out['supplier_iban'] = islamic.supplier_iban;
+  if (islamic.asset_id) out['asset_id'] = islamic.asset_id;
   return out;
 }
 

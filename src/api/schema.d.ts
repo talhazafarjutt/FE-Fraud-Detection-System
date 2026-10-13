@@ -772,6 +772,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/islamic/contracts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Contracts */
+        get: operations["list_contracts_v1_islamic_contracts_get"];
+        put?: never;
+        /** Register Contract */
+        post: operations["register_contract_v1_islamic_contracts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/islamic/contracts/{contract_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Contract */
+        get: operations["get_contract_v1_islamic_contracts__contract_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Contract */
+        patch: operations["update_contract_v1_islamic_contracts__contract_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1152,6 +1188,245 @@ export interface components {
             client_id: string;
             /** Client Secret */
             client_secret: string;
+        };
+        /** ContractDetailOut */
+        ContractDetailOut: {
+            /** Contract Id */
+            contract_id: string;
+            /** Product */
+            product: string;
+            /** Product Label */
+            product_label: string;
+            /** Status */
+            status: string;
+            /** Team */
+            team: string | null;
+            /** Customer Iban Last4 */
+            customer_iban_last4: string;
+            /** Supplier Iban Last4 */
+            supplier_iban_last4?: string | null;
+            /** Asset Id */
+            asset_id?: string | null;
+            /**
+             * Contract Start
+             * Format: date
+             */
+            contract_start: string;
+            /** Tenor */
+            tenor?: number | null;
+            /** Scheduled Amount */
+            scheduled_amount?: string | null;
+            /** First Due Date */
+            first_due_date?: string | null;
+            /**
+             * Frequency Months
+             * @default 1
+             */
+            frequency_months: number;
+            /** Financed Amount */
+            financed_amount?: string | null;
+            /**
+             * Approved Payers
+             * @default []
+             */
+            approved_payers: components["schemas"]["PayerOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Payments Seen
+             * @default 0
+             */
+            payments_seen: number;
+            /**
+             * Alerts
+             * @default 0
+             */
+            alerts: number;
+            /** Last Payment At */
+            last_payment_at?: string | null;
+            /** Schedule */
+            schedule: components["schemas"]["ScheduleItem"][];
+            /** Payments */
+            payments: components["schemas"]["PaymentOut"][];
+        };
+        /**
+         * ContractIn
+         * @description See civitas_islamic/register.py for each field's rule.
+         */
+        ContractIn: {
+            /** Contract Id */
+            contract_id: string;
+            /** Product */
+            product: string;
+            /** Customer Iban */
+            customer_iban: string;
+            /** Supplier Iban */
+            supplier_iban?: string | null;
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Contract Start */
+            contract_start: string;
+            /** Tenor */
+            tenor?: number | null;
+            /** Scheduled Amount */
+            scheduled_amount?: number | string | null;
+            /** First Due Date */
+            first_due_date?: string | null;
+            /** Frequency Months */
+            frequency_months?: number | null;
+            /** Financed Amount */
+            financed_amount?: number | string | null;
+            /** Approved Payer Ibans */
+            approved_payer_ibans?: string[] | null;
+            /** Status */
+            status?: string | null;
+            /** Team */
+            team?: string | null;
+        };
+        /** ContractListItem */
+        ContractListItem: {
+            /** Contract Id */
+            contract_id: string;
+            /** Product */
+            product: string;
+            /** Product Label */
+            product_label: string;
+            /** Status */
+            status: string;
+            /** Team */
+            team: string | null;
+            /** Customer Iban Last4 */
+            customer_iban_last4: string;
+            /** Supplier Iban Last4 */
+            supplier_iban_last4?: string | null;
+            /** Asset Id */
+            asset_id?: string | null;
+            /**
+             * Contract Start
+             * Format: date
+             */
+            contract_start: string;
+            /** Tenor */
+            tenor?: number | null;
+            /** Scheduled Amount */
+            scheduled_amount?: string | null;
+            /** First Due Date */
+            first_due_date?: string | null;
+            /**
+             * Frequency Months
+             * @default 1
+             */
+            frequency_months: number;
+            /** Financed Amount */
+            financed_amount?: string | null;
+            /**
+             * Approved Payers
+             * @default []
+             */
+            approved_payers: components["schemas"]["PayerOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Payments Seen
+             * @default 0
+             */
+            payments_seen: number;
+            /**
+             * Alerts
+             * @default 0
+             */
+            alerts: number;
+            /** Last Payment At */
+            last_payment_at?: string | null;
+        };
+        /** ContractOut */
+        ContractOut: {
+            /** Contract Id */
+            contract_id: string;
+            /** Product */
+            product: string;
+            /** Product Label */
+            product_label: string;
+            /** Status */
+            status: string;
+            /** Team */
+            team: string | null;
+            /** Customer Iban Last4 */
+            customer_iban_last4: string;
+            /** Supplier Iban Last4 */
+            supplier_iban_last4?: string | null;
+            /** Asset Id */
+            asset_id?: string | null;
+            /**
+             * Contract Start
+             * Format: date
+             */
+            contract_start: string;
+            /** Tenor */
+            tenor?: number | null;
+            /** Scheduled Amount */
+            scheduled_amount?: string | null;
+            /** First Due Date */
+            first_due_date?: string | null;
+            /**
+             * Frequency Months
+             * @default 1
+             */
+            frequency_months: number;
+            /** Financed Amount */
+            financed_amount?: string | null;
+            /**
+             * Approved Payers
+             * @default []
+             */
+            approved_payers: components["schemas"]["PayerOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ContractPage */
+        ContractPage: {
+            /** Items */
+            items: components["schemas"]["ContractListItem"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * ContractPatch
+         * @description Terms are immutable: only the status and the approved payers change.
+         */
+        ContractPatch: {
+            /** Status */
+            status?: string | null;
+            /** Approved Payer Ibans */
+            approved_payer_ibans?: string[] | null;
         };
         /**
          * CurationStatus
@@ -1963,6 +2238,52 @@ export interface components {
          * @enum {string}
          */
         PartyType: "PERSON" | "COMPANY";
+        /** PayerOut */
+        PayerOut: {
+            /** Iban Last4 */
+            iban_last4: string;
+        };
+        /** PaymentOut */
+        PaymentOut: {
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /**
+             * Booked At
+             * Format: date-time
+             */
+            booked_at: string;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Event */
+            event?: string | null;
+            /** Instalment No */
+            instalment_no?: number | null;
+            /** Risk Score */
+            risk_score?: number | null;
+            /** Risk Level */
+            risk_level?: string | null;
+            /** Alert Id */
+            alert_id?: string | null;
+            /** Alert Severity */
+            alert_severity?: string | null;
+            /** Alert Status */
+            alert_status?: string | null;
+            /**
+             * Rules Added
+             * @default []
+             */
+            rules_added: string[];
+            /**
+             * Rules Set Aside
+             * @default []
+             */
+            rules_set_aside: string[];
+        };
         /** ProductSummaryOut */
         ProductSummaryOut: {
             /** Product */
@@ -2070,6 +2391,18 @@ export interface components {
              * @default 0
              */
             count: number;
+        };
+        /** ScheduleItem */
+        ScheduleItem: {
+            /** Instalment No */
+            instalment_no: number;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Amount */
+            amount?: string | null;
         };
         /**
          * ScorePush
@@ -3799,6 +4132,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SummaryOut"];
+                };
+            };
+        };
+    };
+    list_contracts_v1_islamic_contracts_get: {
+        parameters: {
+            query?: {
+                status?: ("ACTIVE" | "SETTLED" | "CANCELLED" | "DEFAULTED") | null;
+                product?: ("MURABAHA" | "IJARA" | "MUSHARAKA" | "MUDARABA" | "SUKUK" | "TAKAFUL" | "QARD_HASAN") | null;
+                /** @description In contract_id */
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_contract_v1_islamic_contracts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContractIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractOut"];
+                };
+            };
+            /** @description Already registered */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_contract_v1_islamic_contracts__contract_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contract_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractDetailOut"];
+                };
+            };
+            /** @description Not registered, or another team's */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_contract_v1_islamic_contracts__contract_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contract_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContractPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractOut"];
+                };
+            };
+            /** @description Not registered */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not allowed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

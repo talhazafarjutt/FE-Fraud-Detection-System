@@ -119,7 +119,8 @@ export const WIRE_META_ON = {
     "SETTLEMENT_LAUNDERING",
     "COMMODITY_ROUND_TRIP",
     "TAKAFUL_CLAIM_FRAUD",
-    "CHARITY_DIVERSION"
+    "CHARITY_DIVERSION",
+    "DOUBLE_FINANCING"
   ],
   products: [
     {

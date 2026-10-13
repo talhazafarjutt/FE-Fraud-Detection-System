@@ -1,6 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { tokenResponseSchema } from '@/api/schemas/auth';
 import {
+  type ContractDetail,
+  type ContractRegistration,
+  contractDetailSchema,
+} from '@/api/schemas/contracts';
+import {
   riskSchema,
   transactionCreatedSchema,
   transactionFormSchema,
@@ -12,7 +17,7 @@ import { buildTransactionPayload } from '@/features/transactions/payload';
 import { keptOnVerdict, SAMPLES, type Sample } from '@/features/transactions/samples';
 
 /**
- * Proves every one of the twenty-one Islamic samples against the LIVE API —
+ * Proves every one of the Islamic samples against the LIVE API —
  * not a mock, not a fixture. Skipped unless LIVE_API is set, because it needs
  * a running backend and writes real transactions into its database.
  *
@@ -111,17 +116,43 @@ async function pollScore(transactionId: string, bearer: string, timeoutMs = 30_0
   }
 }
 
+async function registerContract(contract: ContractRegistration, bearer: string): Promise<void> {
+  const response = await fetch(`${BASE}/v1/islamic/contracts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify(contract),
+  });
+  if (response.status !== 201) {
+    throw new Error(`POST /v1/islamic/contracts -> ${response.status}: ${await response.text()}`);
+  }
+}
+
+async function readContract(contractId: string, bearer: string): Promise<ContractDetail | null> {
+  const response = await fetch(`${BASE}/v1/islamic/contracts/${encodeURIComponent(contractId)}`, {
+    headers: { Authorization: `Bearer ${bearer}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`GET /v1/islamic/contracts/${contractId} -> ${response.status}`);
+  return contractDetailSchema.parse(await response.json());
+}
+
 interface SampleOutcome {
   created: TransactionCreated;
   risk: Risk;
+  /** The registration of the contract the final transaction names, if the sample made one. */
+  registered: ContractRegistration | undefined;
 }
 
 async function runSample(sample: Sample, ingestToken: string, readToken: string): Promise<SampleOutcome> {
   const scenario = sample.generate();
-  for (const setupValues of scenario.setup) {
-    await submitTxn(setupValues, ingestToken);
+  for (const step of scenario.setup) {
+    if (step.kind === 'contract') await registerContract(step.contract, ingestToken);
+    else await submitTxn(step.values, ingestToken);
     await sleep(PACE_MS);
   }
+  const registered = scenario.setup
+    .flatMap((step) => (step.kind === 'contract' ? [step.contract] : []))
+    .find((contract) => contract.contract_id === scenario.final.islamic.contract_id);
   const created = await submitTxn(scenario.final, ingestToken);
   await sleep(PACE_MS);
 
@@ -130,7 +161,7 @@ async function runSample(sample: Sample, ingestToken: string, readToken: string)
     risk = await pollScore(created.transaction_id, readToken);
     await sleep(PACE_MS);
   }
-  return { created, risk };
+  return { created, risk, registered };
 }
 
 describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
@@ -157,7 +188,7 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
     it(
       `${sample.id}: ${sample.label}`,
       async () => {
-        const { created, risk } = await runSample(sample, ingestToken, readToken);
+        const { created, risk, registered } = await runSample(sample, ingestToken, readToken);
         const score = risk.risk_score ?? 0;
         const gotAlert = Boolean(created.alert) || score >= 70;
         const findings = risk.layer_findings?.['islamic'];
@@ -196,6 +227,31 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
           expect(recorded, 'findings.kept beside a set-aside').toBeTruthy();
           const network = (risk.network?.evidence ?? []).map((evidence) => evidence.code);
           expect(recorded?.network_evidence ?? [], 'findings.kept network evidence').toEqual(network);
+        }
+
+        // The register: whether the layer found the contract, and — for one
+        // the sample registered — that the analyst sees the payment on it.
+        const contractId = findings?.facts.contract_id;
+        if (contractId) {
+          expect(findings?.facts.contract_registered, 'facts.contract_registered').toBe(
+            registered !== undefined,
+          );
+          expect(findings?.facts.contract_status ?? null, 'facts.contract_status').toBe(
+            registered ? (registered.status ?? 'ACTIVE') : null,
+          );
+        }
+        if (registered) {
+          const contract = await readContract(registered.contract_id, readToken);
+          expect(contract, 'the analyst can read the registered contract').not.toBeNull();
+          const payment = contract?.payments.find((p) => p.transaction_id === created.transaction_id);
+          expect(payment, 'the final transaction is listed on its contract').toBeTruthy();
+          expect([...(payment?.rules_added ?? [])].sort(), 'payment.rules_added').toEqual(added);
+          expect([...(payment?.rules_set_aside ?? [])].sort(), 'payment.rules_set_aside').toEqual(setAside);
+          // eslint-disable-next-line no-console -- readable record of the run.
+          console.log(
+            `${sample.id}: contract ${registered.contract_id} ${contract?.status} ` +
+              `payments=${contract?.payments.length} schedule=${contract?.schedule.length}`,
+          );
         }
       },
       60_000,
