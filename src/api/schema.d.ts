@@ -808,6 +808,75 @@ export interface paths {
         patch: operations["update_contract_v1_islamic_contracts__contract_id__patch"];
         trace?: never;
     };
+    "/v1/islamic/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_v1_islamic_settings_get"];
+        /** Update Settings */
+        put: operations["update_settings_v1_islamic_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/islamic/settings/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Settings */
+        post: operations["reset_settings_v1_islamic_settings_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/islamic/settings/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Settings History */
+        get: operations["settings_history_v1_islamic_settings_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/islamic/pilot-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Pilot Report */
+        get: operations["get_pilot_report_v1_islamic_pilot_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1181,6 +1250,15 @@ export interface components {
             /** Findings */
             findings?: string | null;
             feedback?: components["schemas"]["FeedbackIn"] | null;
+        };
+        /** ChangeOut */
+        ChangeOut: {
+            /** Field */
+            field: string;
+            /** Before */
+            before: string | number;
+            /** After */
+            after: string | number;
         };
         /** ClientCredentialsRequest */
         ClientCredentialsRequest: {
@@ -2109,6 +2187,33 @@ export interface components {
             /** Alert Count */
             alert_count: number;
         };
+        /**
+         * OutcomesOut
+         * @description Per hit: the case concluded as fraud, as a false positive, a case not
+         *     (yet) concluded either way, or no alert/case on the transaction at all.
+         */
+        OutcomesOut: {
+            /**
+             * Confirmed Fraud
+             * @default 0
+             */
+            confirmed_fraud: number;
+            /**
+             * False Positive
+             * @default 0
+             */
+            false_positive: number;
+            /**
+             * Open Case
+             * @default 0
+             */
+            open_case: number;
+            /**
+             * No Case
+             * @default 0
+             */
+            no_case: number;
+        };
         /** Page[AlertOut] */
         Page_AlertOut_: {
             /** Items */
@@ -2284,6 +2389,70 @@ export interface components {
              */
             rules_set_aside: string[];
         };
+        /** PilotHitOut */
+        PilotHitOut: {
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /**
+             * Booked At
+             * Format: date-time
+             */
+            booked_at: string;
+            /** Product */
+            product?: string | null;
+            /** Event */
+            event?: string | null;
+            /** Rule */
+            rule: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "set_aside";
+            /** Severity */
+            severity?: string | null;
+            /** Risk Score */
+            risk_score?: number | null;
+            /** Alert Id */
+            alert_id?: string | null;
+            /** Case Status */
+            case_status?: string | null;
+            /** Final Label */
+            final_label?: string | null;
+        };
+        /** PilotReportOut */
+        PilotReportOut: {
+            /** Days */
+            days: number;
+            /** Rules */
+            rules: components["schemas"]["PilotRuleOut"][];
+            /** Hits */
+            hits: components["schemas"]["PilotHitOut"][];
+        };
+        /** PilotRuleOut */
+        PilotRuleOut: {
+            /** Rule */
+            rule: string;
+            /**
+             * Mode Now
+             * @enum {string}
+             */
+            mode_now: "ACTIVE" | "PILOT" | "OFF";
+            /**
+             * Would Flag
+             * @default 0
+             */
+            would_flag: number;
+            /**
+             * Would Set Aside
+             * @default 0
+             */
+            would_set_aside: number;
+            outcomes?: components["schemas"]["OutcomesOut"];
+        };
         /** ProductSummaryOut */
         ProductSummaryOut: {
             /** Product */
@@ -2331,6 +2500,11 @@ export interface components {
         RefreshRequest: {
             /** Refresh Token */
             refresh_token: string;
+        };
+        /** ResetIn */
+        ResetIn: {
+            /** Reason */
+            reason: string;
         };
         /**
          * RiskLevel
@@ -2465,6 +2639,47 @@ export interface components {
          */
         ScoringStatus: "COMPLETE" | "PENDING" | "FAILED";
         /**
+         * SettingsIn
+         * @description Only what changes; every other value stays as it is.
+         */
+        SettingsIn: {
+            /** Modes */
+            modes?: {
+                [key: string]: unknown;
+            } | null;
+            /** Thresholds */
+            thresholds?: {
+                [key: string]: unknown;
+            } | null;
+            /** Reason */
+            reason: string;
+        };
+        /** SettingsOut */
+        SettingsOut: {
+            /** Version */
+            version: number;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Modes */
+            modes: {
+                [key: string]: "ACTIVE" | "PILOT" | "OFF";
+            };
+            /** Thresholds */
+            thresholds: {
+                [key: string]: number;
+            };
+            /** Rule Kinds */
+            rule_kinds: {
+                [key: string]: "added" | "set_aside";
+            };
+            /** Schema */
+            schema: components["schemas"]["ThresholdSpecOut"][];
+        };
+        /**
          * SignalScoresOut
          * @description The four signals behind the verdict, before blending. Scale is 0-100.
          */
@@ -2491,6 +2706,26 @@ export interface components {
             products: components["schemas"]["ProductSummaryOut"][];
             /** Rules */
             rules: components["schemas"]["RuleCountOut"][];
+        };
+        /** ThresholdSpecOut */
+        ThresholdSpecOut: {
+            /** Name */
+            name: string;
+            /** Rules */
+            rules: string[];
+            /** Default */
+            default: number;
+            /** Min */
+            min: number;
+            /** Max */
+            max: number;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "days" | "hours" | "count" | "share" | "percent" | "tier";
+            /** Help */
+            help: string;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2719,6 +2954,24 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VersionOut */
+        VersionOut: {
+            /** Version */
+            version: number;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Reset
+             * @default false
+             */
+            reset: boolean;
+            /** Changes */
+            changes: components["schemas"]["ChangeOut"][];
         };
     };
     responses: never;
@@ -4285,6 +4538,166 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_v1_islamic_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+        };
+    };
+    update_settings_v1_islamic_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Changed concurrently */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reset_settings_v1_islamic_settings_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Changed concurrently */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settings_history_v1_islamic_settings_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pilot_report_v1_islamic_pilot_report_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PilotReportOut"];
+                };
             };
             /** @description Validation Error */
             422: {

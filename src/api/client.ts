@@ -180,7 +180,7 @@ export function __resetRefreshState(): void {
  * ------------------------------------------------------------------ */
 
 export interface RequestOptions<T> {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** Output type is T; input is unknown because it comes off the wire. */
   schema?: z.ZodType<T, z.ZodTypeDef, unknown>;

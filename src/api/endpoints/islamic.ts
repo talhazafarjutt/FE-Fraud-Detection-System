@@ -10,6 +10,15 @@ import {
   contractSchema,
 } from '../schemas/contracts';
 import { type IslamicSummary, islamicSummarySchema } from '../schemas/islamic';
+import {
+  type PilotReport,
+  type RuleSettings,
+  type RuleSettingsChange,
+  type SettingsVersion,
+  pilotReportSchema,
+  ruleSettingsSchema,
+  settingsHistorySchema,
+} from '../schemas/ruleSettings';
 
 /**
  * Mounted by the Islamic layer only while it is switched on; the console asks
@@ -61,5 +70,54 @@ export async function registerContract(
     body,
     schema: contractSchema,
     bearerOverride: bearer,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Rule settings and the pilot report. Settings are per deployment, not per
+ * team: anyone with alerts:read reads them, rules:manage (SUPERVISOR) changes
+ * them. The pilot report is team-scoped like every other read.
+ * ------------------------------------------------------------------ */
+
+export async function getRuleSettings(signal?: AbortSignal): Promise<RuleSettings> {
+  return requestData(route('/v1/islamic/settings'), {
+    schema: ruleSettingsSchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+/** Only what changes. 422 names each bad field; a change that changes nothing is a 422 too. */
+export async function updateRuleSettings(change: RuleSettingsChange): Promise<RuleSettings> {
+  return requestData(route('/v1/islamic/settings'), {
+    method: 'PUT',
+    body: change,
+    schema: ruleSettingsSchema,
+  });
+}
+
+/** Back to the shipped defaults, recorded as a new version. */
+export async function resetRuleSettings(reason: string): Promise<RuleSettings> {
+  return requestData(route('/v1/islamic/settings/reset'), {
+    method: 'POST',
+    body: { reason },
+    schema: ruleSettingsSchema,
+  });
+}
+
+/** Newest first, each with the fields it changed. */
+export async function getRuleSettingsHistory(
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<SettingsVersion[]> {
+  return requestData(route('/v1/islamic/settings/history', { limit }), {
+    schema: settingsHistorySchema,
+    ...(signal ? { signal } : {}),
+  });
+}
+
+export async function getPilotReport(days: number, signal?: AbortSignal): Promise<PilotReport> {
+  return requestData(route('/v1/islamic/pilot-report', { days }), {
+    schema: pilotReportSchema,
+    ...(signal ? { signal } : {}),
   });
 }

@@ -30,6 +30,8 @@ const UsersPage = lazyRoute('UsersPage', () => import('@/features/users/UsersPag
 // The Islamic layer's contract register — read-only; the nav offers it only with the layer on.
 const ContractsPage = lazyRoute('ContractsPage', () => import('@/features/contracts/ContractsPage'));
 const ContractDetailPage = lazyRoute('ContractDetailPage', () => import('@/features/contracts/ContractDetailPage'));
+// The Islamic layer's rule settings and pilot report — readable with alerts:read, editable with rules:manage.
+const RuleSettingsPage = lazyRoute('RuleSettingsPage', () => import('@/features/rule-settings/RuleSettingsPage'));
 
 // The investigation layer — /v1/cases and friends, live on the local API.
 const CasesPage = lazyRoute('CasesPage', () => import('@/features/cases/CasesPage'));
@@ -91,6 +93,8 @@ export const APP_ROUTES: RouteSpec[] = [
     path: 'contracts/:contractId',
     element: guarded('alerts:read', <ContractDetailPage />, 'Contract'),
   },
+  // Read by anyone with alerts:read; the edit controls need rules:manage (SUPERVISOR).
+  { path: 'rules', element: guarded('alerts:read', <RuleSettingsPage />, 'Rule settings') },
   { path: 'investigations', element: guarded('alerts:read', <InvestigationsPage />, 'Investigations') },
   { path: 'cases', element: guarded('alerts:read', <CasesPage />, 'Cases') },
   { path: 'cases/:caseId', element: guarded('alerts:read', <CaseDetailPage />, 'Case') },

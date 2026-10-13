@@ -43,6 +43,8 @@ const NAV: NavItem[] = [
   { to: '/transactions', label: 'Transactions', scope: 'transactions:read' },
   // The Islamic layer's contract register: read-only here, the bank writes it.
   { to: '/contracts', label: 'Contracts', scope: 'alerts:read', layer: ISLAMIC_LAYER },
+  // The layer's rules: everyone with alerts:read reads them; rules:manage changes them.
+  { to: '/rules', label: 'Rule settings', scope: 'alerts:read', layer: ISLAMIC_LAYER },
   { to: '/cases', label: 'Cases', scope: 'alerts:read' },
   // The trail describes the analysts, so they do not get to read it.
   { to: '/audit', label: 'Audit', scope: 'audit:read' },

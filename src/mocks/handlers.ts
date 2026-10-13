@@ -39,6 +39,7 @@ import {
   META_FIXTURE,
   islamicSummary,
 } from './islamic';
+import { createRuleSettingsStore, pilotReport } from './ruleSettings';
 
 /**
  * MSW handlers mirroring the real backend closely enough that the whole console
@@ -82,6 +83,8 @@ const contracts: MockContract[] = CONTRACT_FIXTURES.map((entry) => ({
 const contractPayments: MockPayment[] = [...PAYMENT_FIXTURES];
 
 const auditLog = [...AUDIT_FIXTURES];
+/** The Islamic layer's rule settings: per deployment, versioned, kept in memory. */
+const ruleSettings = createRuleSettingsStore();
 let nextAuditId = Math.max(0, ...auditLog.map((row) => row.id)) + 1;
 
 /** Every mutation writes a trail entry, exactly as the backend does. */
@@ -598,6 +601,12 @@ function contractInvalid(errors: FieldProblem[]) {
 }
 
 /** The machine client's own team is "machine"; it registers into the demo's team. */
+/** Who a settings change is shown as made by: the user's name, else their email. */
+function settingsActor(subject: string): string {
+  const user = users.find((entry) => entry.id === subject);
+  return user?.full_name || user?.email || subject;
+}
+
 function registeringTeam(session: { team: string }, requested: unknown): string {
   if (typeof requested === 'string' && requested) return requested;
   return session.team === 'machine' ? 'team-alpha' : session.team;
@@ -1020,6 +1029,69 @@ export const handlers = [
     );
   }),
 
+  // Rule settings: alerts:read reads them, rules:manage (SUPERVISOR) changes them.
+  http.get('*/v1/islamic/settings', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    return HttpResponse.json(ruleSettings.current());
+  }),
+
+  http.put('*/v1/islamic/settings', async ({ request }) => {
+    const guard = requireScope(request, 'rules:manage');
+    if (guard.error) return guard.error;
+    const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+    const result = ruleSettings.update(body, settingsActor(guard.session.subject));
+    if (!result.ok) {
+      return problem(422, 'Validation failed', result.detail, { errors: result.errors });
+    }
+    const { version, reason } = result.settings;
+    recordAudit(guard.session.subject, 'islamic.settings.update', 'islamic_settings', String(version), {
+      reason,
+    });
+    return HttpResponse.json(result.settings);
+  }),
+
+  http.post('*/v1/islamic/settings/reset', async ({ request }) => {
+    const guard = requireScope(request, 'rules:manage');
+    if (guard.error) return guard.error;
+    const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+    const result = ruleSettings.reset(body, settingsActor(guard.session.subject));
+    if (!result.ok) {
+      return problem(422, 'Validation failed', result.detail, { errors: result.errors });
+    }
+    const { version, reason } = result.settings;
+    recordAudit(guard.session.subject, 'islamic.settings.reset', 'islamic_settings', String(version), {
+      reason,
+    });
+    return HttpResponse.json(result.settings);
+  }),
+
+  http.get('*/v1/islamic/settings/history', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const raw = new URL(request.url).searchParams.get('limit');
+    const limit = raw === null ? 50 : Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      return problem(422, 'Validation failed', 'limit must be between 1 and 200.');
+    }
+    return HttpResponse.json(ruleSettings.versions(limit));
+  }),
+
+  // Team-scoped like /v1/islamic/summary: the caller's team's hits only.
+  http.get('*/v1/islamic/pilot-report', ({ request }) => {
+    const guard = requireScope(request, 'alerts:read');
+    if (guard.error) return guard.error;
+    const { session } = guard;
+    const raw = new URL(request.url).searchParams.get('days');
+    const days = raw === null ? 30 : Number(raw);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      return problem(422, 'Validation failed', 'days must be between 1 and 365.');
+    }
+    return HttpResponse.json(
+      pilotReport(days, (team) => visibleTo(session, team), ruleSettings.modeOf),
+    );
+  }),
+
   http.post('*/v1/islamic/contracts', async ({ request }) => {
     const guard = requireScope(request, 'transactions:write');
     if (guard.error) return guard.error;
@@ -1147,7 +1219,14 @@ export const handlers = [
       team: body.team,
       is_active: true,
       scopes: body.roles.includes('SUPERVISOR')
-        ? ['alerts:read', 'alerts:read:all', 'alerts:update', 'alerts:assign', 'alerts:close']
+        ? [
+            'alerts:read',
+            'alerts:read:all',
+            'alerts:update',
+            'alerts:assign',
+            'alerts:close',
+            'rules:manage',
+          ]
         : body.roles.includes('ADMIN')
           ? ['users:manage']
           : ['alerts:read', 'alerts:update', 'transactions:read'],

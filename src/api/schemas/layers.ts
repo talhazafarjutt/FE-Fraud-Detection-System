@@ -68,6 +68,26 @@ export const keptEvidenceSchema = z
   .passthrough();
 export type KeptEvidence = z.infer<typeof keptEvidenceSchema>;
 
+/**
+ * What the layer's rules on trial (PILOT) would have done, in the same shapes
+ * as `added` and `set_aside`. Recorded only: nothing here reached the score,
+ * the triggered rules or the alert. Present only when a PILOT rule produced
+ * something; older findings have none.
+ */
+export const shadowSchema = z
+  .object({
+    added: z
+      .array(layerRuleSchema)
+      .nullish()
+      .transform((rules) => rules ?? []),
+    set_aside: z
+      .array(setAsideSchema)
+      .nullish()
+      .transform((rules) => rules ?? []),
+  })
+  .passthrough();
+export type Shadow = z.infer<typeof shadowSchema>;
+
 export const layerFindingSchema = z
   .object({
     facts: layerFactsSchema.nullish().transform((facts): LayerFacts => facts ?? {}),
@@ -83,6 +103,10 @@ export const layerFindingSchema = z
     score_after: z.number().nullish(),
     // A malformed `kept` is dropped, not allowed to cost the whole entry.
     kept: keptEvidenceSchema.nullish().catch(null),
+    /** The settings version the layer scored under. Absent on older findings. */
+    settings_version: z.number().nullish().catch(null),
+    // Like `kept`: a malformed shadow block is dropped, not allowed to cost the entry.
+    shadow: shadowSchema.nullish().catch(null),
   })
   .passthrough();
 export type LayerFinding = z.infer<typeof layerFindingSchema>;
@@ -102,7 +126,10 @@ function byLayer<T>(entry: z.ZodType<T, z.ZodTypeDef, unknown>) {
   });
 }
 
-/** `{"<layer>": {facts, added, set_aside, score_before, score_after, kept?}}`, or null. */
+/**
+ * `{"<layer>": {facts, added, set_aside, score_before, score_after, kept?,
+ * settings_version?, shadow?}}`, or null.
+ */
 export const layerFindingsSchema = byLayer(layerFindingSchema);
 
 /** `{"<layer>": facts}`, or null. */

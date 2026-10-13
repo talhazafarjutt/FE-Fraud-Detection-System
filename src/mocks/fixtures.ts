@@ -351,6 +351,7 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
       'entities:read',
       'feedback:export',
       'feedback:review',
+      'rules:manage',
       'transactions:read',
     ],
     team: 'team-alpha',

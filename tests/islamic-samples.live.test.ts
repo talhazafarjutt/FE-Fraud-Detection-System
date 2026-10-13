@@ -6,6 +6,13 @@ import {
   contractDetailSchema,
 } from '@/api/schemas/contracts';
 import {
+  type PilotReport,
+  type RuleSettings,
+  type RuleSettingsChange,
+  pilotReportSchema,
+  ruleSettingsSchema,
+} from '@/api/schemas/ruleSettings';
+import {
   riskSchema,
   transactionCreatedSchema,
   transactionFormSchema,
@@ -13,6 +20,7 @@ import {
   type TransactionCreated,
   type TransactionFormValues,
 } from '@/api/schemas/transactions';
+import { atDefaults } from '@/features/rule-settings/rules';
 import { buildTransactionPayload } from '@/features/transactions/payload';
 import { keptOnVerdict, SAMPLES, type Sample } from '@/features/transactions/samples';
 
@@ -35,7 +43,15 @@ import { keptOnVerdict, SAMPLES, type Sample } from '@/features/transactions/sam
  *                          only — see app/core/scopes.py ROLE_SCOPES). The
  *                          local seed (scripts/seed.py) gives every human
  *                          account the same password; this is also passed in
- *                          via env, never written into this file.
+ *                          via env, never written into this file. The suite
+ *                          signs in as `supervisor@civitas.ai` with it too:
+ *                          the layer's rule settings need rules:manage.
+ *
+ * The samples' expectations are the layer's SHIPPED DEFAULTS, so the suite
+ * first puts the rule settings back to them (a reset, as the supervisor) if
+ * any rule or threshold differs, and the pilot test at the end restores them
+ * whatever happens. Settings are per deployment: run nothing else that
+ * changes them while this suite runs.
  *
  * Run: LIVE_API=http://localhost:8000 LIVE_INGEST_SECRET=... \
  *      LIVE_ANALYST_PASSWORD=... npx vitest run tests/islamic-samples.live.test.ts
@@ -116,6 +132,61 @@ async function pollScore(transactionId: string, bearer: string, timeoutMs = 30_0
   }
 }
 
+/**
+ * Scoring reads the layer's settings through a 15-second in-process cache
+ * (CACHE_SECONDS in civitas_islamic/settings.py). The API process drops its
+ * own on a write; the worker's may still hold the old version that long.
+ */
+const SETTINGS_CACHE_MS = 16_000;
+
+async function settingsCall(
+  method: 'GET' | 'PUT' | 'POST',
+  path: string,
+  bearer: string,
+  body?: unknown,
+): Promise<RuleSettings> {
+  const response = await fetch(`${BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!response.ok) {
+    throw new Error(`${method} ${path} -> ${response.status}: ${await response.text()}`);
+  }
+  return ruleSettingsSchema.parse(await response.json());
+}
+
+const readSettings = (bearer: string) => settingsCall('GET', '/v1/islamic/settings', bearer);
+const changeSettings = (bearer: string, change: RuleSettingsChange) =>
+  settingsCall('PUT', '/v1/islamic/settings', bearer, change);
+const resetSettings = (bearer: string, reason: string) =>
+  settingsCall('POST', '/v1/islamic/settings/reset', bearer, { reason });
+
+/** Back to the shipped defaults, only when something differs (a reset always writes a version). */
+async function ensureDefaults(bearer: string): Promise<void> {
+  const current = await readSettings(bearer);
+  if (atDefaults(current)) {
+    // eslint-disable-next-line no-console -- readable record of the run.
+    console.log(`settings: version ${current.version} is at the shipped defaults`);
+    return;
+  }
+  const reset = await resetSettings(bearer, 'Live sample suite: start from the shipped defaults');
+  // eslint-disable-next-line no-console -- readable record of the run.
+  console.log(`settings: version ${current.version} differed from the defaults; reset as version ${reset.version}`);
+  await sleep(SETTINGS_CACHE_MS);
+}
+
+async function readPilotReport(bearer: string, days: number): Promise<PilotReport> {
+  const response = await fetch(`${BASE}/v1/islamic/pilot-report?days=${days}`, {
+    headers: { Authorization: `Bearer ${bearer}` },
+  });
+  if (!response.ok) throw new Error(`GET /v1/islamic/pilot-report -> ${response.status}`);
+  return pilotReportSchema.parse(await response.json());
+}
+
 async function registerContract(contract: ContractRegistration, bearer: string): Promise<void> {
   const response = await fetch(`${BASE}/v1/islamic/contracts`, {
     method: 'POST',
@@ -167,6 +238,7 @@ async function runSample(sample: Sample, ingestToken: string, readToken: string)
 describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
   let ingestToken = '';
   let readToken = '';
+  let supervisorToken = '';
 
   beforeAll(async () => {
     const ingestSecret = process.env.LIVE_INGEST_SECRET;
@@ -182,7 +254,9 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
     }
     ingestToken = await clientToken('ingest-loader', ingestSecret);
     readToken = await login('analyst@civitas.ai', analystPassword);
-  }, 30_000);
+    supervisorToken = await login('supervisor@civitas.ai', analystPassword);
+    await ensureDefaults(supervisorToken);
+  }, 60_000);
 
   for (const sample of SAMPLES) {
     it(
@@ -257,4 +331,67 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
       60_000,
     );
   }
+  /*
+   * Pilot mode, end to end: F5's early Takaful claim with TAKAFUL_EARLY_CLAIM
+   * on trial. The rule must record what it would have done (findings.shadow)
+   * and change nothing — no rule added, no score change, no alert — and the
+   * pilot report must list the transaction. Runs after the samples, in this
+   * file, so no sample ever scores with the rule on trial; the settings go
+   * back to the defaults whatever happens.
+   */
+  it(
+    'pilot: TAKAFUL_EARLY_CLAIM on trial records F5 as shadow, without an alert',
+    async () => {
+      const sample = SAMPLES.find((entry) => entry.id === 'f5-takaful-early-claim');
+      if (!sample) throw new Error('Sample f5-takaful-early-claim is missing.');
+      const piloted = await changeSettings(supervisorToken, {
+        modes: { TAKAFUL_EARLY_CLAIM: 'PILOT' },
+        reason: 'Live suite: pilot the early-claim rule on sample F5',
+      });
+      try {
+        expect(piloted.modes['TAKAFUL_EARLY_CLAIM']).toBe('PILOT');
+        await sleep(SETTINGS_CACHE_MS);
+
+        const { created, risk } = await runSample(sample, ingestToken, readToken);
+        const findings = risk.layer_findings?.['islamic'];
+        const score = risk.risk_score ?? 0;
+        const shadowAdded = findings?.shadow?.added.map((rule) => rule.rule) ?? [];
+        // eslint-disable-next-line no-console -- readable record of the run.
+        console.log(
+          `pilot ${sample.id}: settings v${findings?.settings_version} score=${score} ` +
+            `alert=${Boolean(created.alert)} added=[${findings?.added.map((r) => r.rule).join(', ')}] ` +
+            `shadow.added=[${shadowAdded.join(', ')}]`,
+        );
+
+        expect(created.alert, 'no alert while the rule is on trial').toBeNull();
+        expect(score, 'below the alert line').toBeLessThan(70);
+        expect(findings?.settings_version, 'findings record the version in force').toBe(piloted.version);
+        expect(findings?.added.map((rule) => rule.rule) ?? [], 'nothing added').not.toContain(
+          'TAKAFUL_EARLY_CLAIM',
+        );
+        expect(shadowAdded, 'recorded as what it would have added').toContain('TAKAFUL_EARLY_CLAIM');
+        expect(findings?.score_after, 'the layer did not move the score').toBe(findings?.score_before);
+        expect(
+          (risk.triggered_rules ?? []).map((rule) => rule.rule),
+          'never on the verdict',
+        ).not.toContain('TAKAFUL_EARLY_CLAIM');
+
+        const report = await readPilotReport(supervisorToken, 1);
+        const hit = report.hits.find((entry) => entry.transaction_id === created.transaction_id);
+        expect(hit, 'listed in the pilot report').toBeTruthy();
+        expect(hit?.rule).toBe('TAKAFUL_EARLY_CLAIM');
+        expect(hit?.kind).toBe('added');
+        expect(hit?.alert_id ?? null).toBeNull();
+        const row = report.rules.find((entry) => entry.rule === 'TAKAFUL_EARLY_CLAIM');
+        expect(row?.mode_now).toBe('PILOT');
+        expect(row?.would_flag ?? 0).toBeGreaterThanOrEqual(1);
+      } finally {
+        await resetSettings(supervisorToken, 'Live suite: pilot test done, back to the shipped defaults');
+        await sleep(SETTINGS_CACHE_MS);
+      }
+      const after = await readSettings(supervisorToken);
+      expect(atDefaults(after), 'settings left at the shipped defaults').toBe(true);
+    },
+    150_000,
+  );
 });

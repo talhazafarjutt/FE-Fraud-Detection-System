@@ -4,6 +4,7 @@ import type {
   LayerFacts,
   LayerFinding,
   LayerFindings as Findings,
+  Shadow,
 } from '@/api/schemas/layers';
 import type { LayerProduct } from '@/api/schemas/meta';
 import { cx } from '@/components/primitives';
@@ -55,6 +56,14 @@ function LayerBlock({
           <span className="mono-label text-ultra">{name}</span>
           <ProductChip facts={facts} layer={layer} products={products} />
           {facts.contract_id ? <ContractRef facts={facts} contractId={facts.contract_id} /> : null}
+          {typeof finding.settings_version === 'number' ? (
+            <span
+              className="font-mono text-[11px] text-ink-3"
+              title="The version of the layer's rule settings this score was made under"
+            >
+              Settings v{finding.settings_version}
+            </span>
+          ) : null}
         </div>
         <ScoreShift before={finding.score_before} after={finding.score_after} />
       </div>
@@ -103,7 +112,67 @@ function LayerBlock({
           {setAside.length > 0 ? <StillCounted kept={finding.kept} /> : null}
         </ul>
       )}
+      {finding.shadow ? <PilotFindings shadow={finding.shadow} /> : null}
     </section>
+  );
+}
+
+/**
+ * What the layer's rules on trial would have done, kept apart from what it
+ * did: a dashed box, "would" wording, and a line saying none of it reached
+ * the score or the alert.
+ */
+function PilotFindings({ shadow }: { shadow: Shadow }) {
+  if (shadow.added.length === 0 && shadow.set_aside.length === 0) return null;
+  return (
+    <div className="border-t border-rule px-5 py-4">
+      <div role="group" aria-label="Pilot — not applied" className="border border-dashed border-amber">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-dashed border-amber px-4 py-2">
+          <span className="mono-label text-amber">Pilot — not applied</span>
+          <span className="text-[13px] text-ink-3">
+            Rules on trial recorded what they would have done; the score and alert are unchanged.
+          </span>
+        </div>
+        <ul className="divide-y divide-rule-soft">
+          {shadow.added.map((rule) => (
+            <li key={`pilot-added-${rule.rule}`} className="flex flex-wrap items-start gap-4 px-4 py-3">
+              <span className="inline-flex border border-dashed border-rule px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag text-ink-2">
+                Would add
+              </span>
+              <LayerRuleSeverity severity={rule.severity} />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[12px] text-ink-2">{rule.rule}</p>
+                {rule.description ? (
+                  <p className="mt-1 text-[14px] text-ink-3">{rule.description}</p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+          {shadow.set_aside.map((rule) => (
+            <li key={`pilot-set-aside-${rule.rule}`} className="flex flex-wrap items-start gap-4 px-4 py-3">
+              <span className="inline-flex border border-dashed border-rule px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag text-ink-2">
+                Would set aside
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[12px] text-ink-2">
+                  {rule.rule}
+                  {rule.severity ? <span className="ml-2 text-ink-3">{rule.severity}</span> : null}
+                </p>
+                {rule.description ? (
+                  <p className="mt-1 text-[14px] text-ink-3">{rule.description}</p>
+                ) : null}
+                {rule.reason ? (
+                  <p className="mt-2 text-[14px] text-ink-2">
+                    <span className="mono-label mr-2 text-ink-3">Reason</span>
+                    {rule.reason}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
