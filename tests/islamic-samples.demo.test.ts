@@ -7,7 +7,7 @@ import { handlers } from '@/mocks/handlers';
 
 /**
  * MSW demo mode must keep working with the new Islamic samples: every setup
- * transaction and every final transaction, for every one of the fifteen
+ * transaction and every final transaction, for every one of the eighteen
  * samples, must be accepted by the mocked POST /v1/transactions without
  * crashing. The mock does not emulate the Islamic rules (that is what
  * islamic-samples.live.test.ts is for) — this only proves the fixture-rules

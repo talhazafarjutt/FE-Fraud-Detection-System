@@ -1,9 +1,15 @@
 import type { TransactionFormValues } from '@/api/schemas/transactions';
 
 /**
- * Fifteen Islamic-first scenarios against the live engine: seven legitimate
- * contracts, each the twin of a fraud pattern, plus one fraud-only warning
- * (F7, which should NOT raise an alert on its own).
+ * Eighteen Islamic-first scenarios against the live engine: seven legitimate
+ * contracts, each the twin of a fraud pattern; eight fraud scenarios (F7 is a
+ * warning-only CONTRACT_INCOHERENT finding that should NOT raise an alert on
+ * its own); and three "signal only" warnings (W1-W3) where a risk-signal rule
+ * (TAKAFUL_EARLY_CLAIM, CHARITY_DIVERSION, THIRD_PARTY_REPAYMENT) fires MEDIUM
+ * with nothing corroborating it to HIGH, so it stays a warning rather than an
+ * alert. Core's own network evidence can still open an alert on any sample
+ * regardless of the layer's severity (verified against the live API — see
+ * W3's note below for where that almost, but does not quite, apply here).
  *
  * Every IBAN below is generated fresh per load (ISO 13616 mod-97 valid — see
  * `freshAeIban`) and every holder gets a fresh `external_ref`, so reloading a
@@ -21,6 +27,14 @@ export interface SampleExpectation {
   alert: boolean;
   /** Rule names the Islamic layer should add. */
   added?: string[];
+  /**
+   * The added rule's severity, for the three rules that are risk signals
+   * rather than fraud decisions on their own (TAKAFUL_EARLY_CLAIM,
+   * CHARITY_DIVERSION, THIRD_PARTY_REPAYMENT): MEDIUM on the base condition
+   * alone, HIGH once a second reason corroborates it. Shown as "warning" vs
+   * "high" next to Expected/Got.
+   */
+  severity?: 'MEDIUM' | 'HIGH';
   /** Rule names the Islamic layer should set aside. */
   setAside?: string[];
 }
@@ -35,7 +49,7 @@ export interface SampleScenario {
 export interface Sample {
   id: string;
   label: string;
-  group: 'legitimate' | 'fraud';
+  group: 'legitimate' | 'fraud' | 'warning';
   summary: string;
   expected: SampleExpectation;
   hasSetup: boolean;
@@ -587,7 +601,7 @@ function sampleF1(): Sample {
     group: 'fraud',
     summary:
       "A 100,000 Murabaha disbursement is paid to Ahmed's friend Khalid instead of Al Noor Motors, the registered supplier. Expect an alert.",
-    expected: { alert: true, added: ['MURABAHA_SUPPLIER_MISMATCH'] },
+    expected: { alert: true, added: ['MURABAHA_SUPPLIER_MISMATCH'], severity: 'HIGH' },
     hasSetup: false,
     generate: () => {
       const bank = account({
@@ -634,8 +648,10 @@ function sampleF2(): Sample {
     label: 'F2 — Instalment from a stranger',
     group: 'fraud',
     summary:
-      "Instalment 8 of 36 on Sara's Murabaha is paid from an account that is not hers. Expect an alert.",
-    expected: { alert: true, added: ['THIRD_PARTY_REPAYMENT'] },
+      "Instalment 8 of 36 on Sara's Murabaha is paid from a stranger's account, opened two weeks " +
+      'ago. Two independent reasons — an unrelated payer, and that account being brand new — ' +
+      'corroborate each other. Expect an alert.',
+    expected: { alert: true, added: ['THIRD_PARTY_REPAYMENT'], severity: 'HIGH' },
     hasSetup: false,
     generate: () => {
       const sara = account({
@@ -645,7 +661,7 @@ function sampleF2(): Sample {
       });
       const stranger = account({
         bankCode: '033',
-        openedOffsetDays: -30,
+        openedOffsetDays: -14,
         holder: { name: 'Hassan Al Marri', refPrefix: 'STRANGER' },
       });
       const collections = account({
@@ -689,7 +705,7 @@ function sampleF3(): Sample {
     group: 'fraud',
     summary:
       'Omar settles 150,000 early, moments after six strangers deposit 25,000 each into his account. Expect an alert.',
-    expected: { alert: true, added: ['SETTLEMENT_FUNDED_BY_FAN_IN'] },
+    expected: { alert: true, added: ['SETTLEMENT_FUNDED_BY_FAN_IN'], severity: 'HIGH' },
     hasSetup: true,
     generate: () => {
       const omar = account({
@@ -751,7 +767,7 @@ function sampleF4(): Sample {
     group: 'fraud',
     summary:
       'The metal bought under a Murabaha contract is sold back to Supplier X, three days after the contract started. Expect an alert.',
-    expected: { alert: true, added: ['COMMODITY_ROUND_TRIP'] },
+    expected: { alert: true, added: ['COMMODITY_ROUND_TRIP'], severity: 'HIGH' },
     hasSetup: false,
     generate: () => {
       const bank = account({
@@ -793,10 +809,13 @@ function sampleF4(): Sample {
 function sampleF5(): Sample {
   return {
     id: 'f5-takaful-early-claim',
-    label: 'F5 — Takaful claim, nine days in',
+    label: 'F5 — Takaful claim, nine days in, to a stranger',
     group: 'fraud',
-    summary: 'Khalid claims 40,000 on his Takaful cover, nine days after it started. Expect an alert.',
-    expected: { alert: true, added: ['TAKAFUL_EARLY_CLAIM'] },
+    summary:
+      "Khalid's Takaful cover pays out 40,000 nine days after it started, to an unrelated account " +
+      "opened last week — not Khalid's own. Two independent reasons on their own: an early claim, " +
+      'and a payee who is not the participant. Expect an alert.',
+    expected: { alert: true, added: ['TAKAFUL_EARLY_CLAIM'], severity: 'HIGH' },
     hasSetup: false,
     generate: () => {
       const fund = account({
@@ -807,17 +826,22 @@ function sampleF5(): Sample {
       });
       const khalid = account({
         bankCode: '033',
-        openedOffsetDays: -20,
+        openedOffsetDays: -900,
         holder: { name: 'Khalid Mansouri', refPrefix: 'KHALIDM' },
+      });
+      const payee = account({
+        bankCode: '033',
+        openedOffsetDays: -7,
+        holder: { name: 'Unrelated Payee', refPrefix: 'TKFPAYEE' },
       });
       const final = txn({
         refPrefix: 'DEMO-TKF-CLAIM-EARLY',
         amount: '40000.00',
         bookedOffsetSeconds: 0,
         senderBalance: '5400000.00',
-        receiverBalance: '2100.00',
+        receiverBalance: '900.00',
         source: fund,
-        destination: khalid,
+        destination: payee,
         islamic: {
           product: 'TAKAFUL',
           event: 'CLAIM',
@@ -838,17 +862,20 @@ function sampleF5(): Sample {
 function sampleF6(): Sample {
   return {
     id: 'f6-charity-diversion',
-    label: 'F6 — The fifth donation, a new account',
+    label: 'F6 — The fifth donation, a personal account',
     group: 'fraud',
     summary:
-      '"Helping Hands", opened 21 days ago, receives its fifth Zakat donation (2,500) from a fifth distinct sender within minutes. Expect an alert.',
-    expected: { alert: true, added: ['CHARITY_DIVERSION'] },
+      '"Helping Hands" — a PERSON account, not a registered organisation — opened 21 days ago, ' +
+      'receives its fifth Zakat donation (2,500) from a fifth distinct sender within minutes. Two ' +
+      'independent reasons: a brand-new account with several donors, and a personal, not registered, ' +
+      'recipient. Expect an alert.',
+    expected: { alert: true, added: ['CHARITY_DIVERSION'], severity: 'HIGH' },
     hasSetup: true,
     generate: () => {
       const charity = account({
         bankCode: '061',
         openedOffsetDays: -21,
-        holder: { type: 'COMPANY', name: 'Helping Hands', refPrefix: 'HELPHANDS' },
+        holder: { name: 'Helping Hands', refPrefix: 'HELPHANDS' },
       });
       const setup = Array.from({ length: 4 }, (_, i) => {
         const donor = account({
@@ -898,7 +925,7 @@ function sampleF7(): Sample {
     group: 'fraud',
     summary:
       'An Ijara rental is logged as instalment 51 of a 48-payment contract. The terms contradict each other, but this alone does not raise a case.',
-    expected: { alert: false, added: ['CONTRACT_INCOHERENT'] },
+    expected: { alert: false, added: ['CONTRACT_INCOHERENT'], severity: 'MEDIUM' },
     hasSetup: false,
     generate: () => {
       const tenant = account({
@@ -947,7 +974,7 @@ function sampleF8(): Sample {
     group: 'fraud',
     summary:
       'Ali pays 130,000 to settle a Murabaha with only 90,000 left on the schedule. Expect CONTRACT_INCOHERENT, with the drain NOT set aside — an alert.',
-    expected: { alert: true, added: ['CONTRACT_INCOHERENT'] },
+    expected: { alert: true, added: ['CONTRACT_INCOHERENT'], severity: 'MEDIUM' },
     hasSetup: false,
     generate: () => {
       const ali = account({
@@ -985,6 +1012,188 @@ function sampleF8(): Sample {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * W1 — A father pays his daughter's Murabaha instalment from his own,
+ * long-established account: THIRD_PARTY_REPAYMENT fires, but nothing
+ * corroborates it — a warning, not an alert.
+ * ------------------------------------------------------------------ */
+
+function sampleW1(): Sample {
+  return {
+    id: 'w1-instalment-paid-by-father',
+    label: 'W1 — Instalment paid by her father (warning only)',
+    group: 'warning',
+    summary:
+      "Sara's instalment is paid by her father Rashid, from an account he has held for years. The " +
+      'payer is not the customer — a risk signal — but nothing else about it is unusual, so it stays ' +
+      'a MEDIUM warning, not an alert.',
+    expected: { alert: false, added: ['THIRD_PARTY_REPAYMENT'], severity: 'MEDIUM' },
+    hasSetup: false,
+    generate: () => {
+      const sara = account({
+        bankCode: '033',
+        openedOffsetDays: -900,
+        holder: { name: 'Sara Al Mazrouei', refPrefix: 'SARA' },
+      });
+      const father = account({
+        bankCode: '033',
+        openedOffsetDays: -4500,
+        holder: { name: 'Rashid Al Mazrouei', refPrefix: 'RASHID' },
+      });
+      const collections = account({
+        bankCode: '070',
+        bic: 'ALITAEAD',
+        openedOffsetDays: -3000,
+        holder: { type: 'COMPANY', name: 'Al Ittihad Islamic Finance', refPrefix: 'AIIF' },
+      });
+      const final = txn({
+        refPrefix: 'DEMO-MRB-INSTALMENT-FAMILY',
+        amount: '4215.60',
+        bookedOffsetSeconds: 0,
+        senderBalance: '210000.00',
+        receiverBalance: '1250340.00',
+        source: father,
+        destination: collections,
+        islamic: {
+          product: 'MURABAHA',
+          event: 'INSTALMENT',
+          contract_id: reference('MRB-SARA'),
+          instalment_no: 8,
+          tenor: 36,
+          scheduled_amount: '4215.60',
+          contract_start: isoDateOffset(-240),
+          customer_iban: sara.iban,
+        },
+      });
+      return noSetup(final);
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * W2 — Takaful claim nine days in, paid to Fatima's own account: the early
+ * claim fires, but the payee is the participant, so there is no second
+ * reason — a warning, not an alert.
+ * ------------------------------------------------------------------ */
+
+function sampleW2(): Sample {
+  return {
+    id: 'w2-takaful-early-claim-own-account',
+    label: 'W2 — Takaful claim, nine days in, own account (warning only)',
+    group: 'warning',
+    summary:
+      'Fatima claims 18,000 on her Takaful cover nine days after it started, paid to her own, ' +
+      'long-held account. The early claim is a risk signal, but paying the participant herself is ' +
+      'not a second reason, so it stays a MEDIUM warning, not an alert.',
+    expected: { alert: false, added: ['TAKAFUL_EARLY_CLAIM'], severity: 'MEDIUM' },
+    hasSetup: false,
+    generate: () => {
+      const fund = account({
+        bankCode: '050',
+        bic: 'ALNOAEAD',
+        openedOffsetDays: -3600,
+        holder: { type: 'COMPANY', name: 'Al Noor Takaful Fund', refPrefix: 'TKFFUND' },
+      });
+      const fatima = account({
+        bankCode: '033',
+        openedOffsetDays: -1600,
+        holder: { name: 'Fatima Al Shamsi', refPrefix: 'FATIMATKF' },
+      });
+      const final = txn({
+        refPrefix: 'DEMO-TKF-CLAIM-OWN',
+        amount: '18000.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '5400000.00',
+        receiverBalance: '24000.00',
+        source: fund,
+        destination: fatima,
+        islamic: {
+          product: 'TAKAFUL',
+          event: 'CLAIM',
+          contract_id: reference('TKF-FATIMA'),
+          contract_start: isoDateOffset(-9),
+          customer_iban: fatima.iban,
+        },
+      });
+      return noSetup(final);
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * W3 — The fifth Zakat donation in a month, to a three-week-old registered
+ * mosque (COMPANY, not a person): the base signal fires, and being a
+ * registered organisation does not by itself corroborate it to HIGH.
+ *
+ * Verified live: five fresh donors into one otherwise-quiet account, on
+ * their own, do NOT trip core's network analyzer the way the same shape does
+ * inside the dense synthetic book (civitas_islamic/book.py's measurement) —
+ * that needs a busier surrounding ledger. Were core network evidence ever to
+ * fire on a sample like this, it would open the alert regardless of the
+ * layer's own MEDIUM severity; this sample just does not, by itself, reach
+ * that. If a future engine change makes it fire here too, update `expected`
+ * to match and say so in the summary — do not just weaken the assertion.
+ * ------------------------------------------------------------------ */
+
+function sampleW3(): Sample {
+  return {
+    id: 'w3-charity-registered-organisation',
+    label: 'W3 — The fifth donation, a registered mosque (warning only)',
+    group: 'warning',
+    summary:
+      'A mosque registered three weeks ago receives its fifth Zakat donation (2,500) from a fifth ' +
+      'distinct sender within minutes. The base signal fires, but being a registered organisation, ' +
+      'not a person, does not by itself corroborate it to HIGH — it stays a MEDIUM warning, not an ' +
+      'alert.',
+    expected: {
+      alert: false,
+      added: ['CHARITY_DIVERSION'],
+      severity: 'MEDIUM',
+    },
+    hasSetup: true,
+    generate: () => {
+      const mosque = account({
+        bankCode: '061',
+        openedOffsetDays: -21,
+        holder: { type: 'COMPANY', name: 'Al Furqan Mosque', refPrefix: 'MOSQUE' },
+      });
+      const setup = Array.from({ length: 4 }, (_, i) => {
+        const donor = account({
+          bankCode: '033',
+          openedOffsetDays: -(600 + i * 40),
+          holder: { name: `Worshipper ${i + 1}`, refPrefix: 'WORSHIP' },
+        });
+        return txn({
+          refPrefix: 'DEMO-ZAKAT-MOSQUE-SETUP',
+          amount: '1000.00',
+          bookedOffsetSeconds: -(4 - i),
+          senderBalance: '50000.00',
+          receiverBalance: String(2000 + i * 1000) + '.00',
+          source: donor,
+          destination: mosque,
+          islamic: { product: 'ZAKAT', event: 'CHARITY' },
+        });
+      });
+      const fifthDonor = account({
+        bankCode: '033',
+        openedOffsetDays: -500,
+        holder: { name: 'Worshipper 5', refPrefix: 'WORSHIP' },
+      });
+      const final = txn({
+        refPrefix: 'DEMO-ZAKAT-MOSQUE',
+        amount: '2500.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '18000.00',
+        receiverBalance: '6500.00',
+        source: fifthDonor,
+        destination: mosque,
+        islamic: { product: 'ZAKAT', event: 'CHARITY' },
+      });
+      return { setup, final };
+    },
+  };
+}
+
 export const SAMPLES: readonly Sample[] = [
   sampleL1(),
   sampleL2(),
@@ -1001,6 +1210,9 @@ export const SAMPLES: readonly Sample[] = [
   sampleF6(),
   sampleF7(),
   sampleF8(),
+  sampleW1(),
+  sampleW2(),
+  sampleW3(),
 ];
 
 export const EMPTY_FORM: TransactionFormValues = {

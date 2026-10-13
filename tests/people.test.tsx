@@ -16,7 +16,7 @@ const OTHER_TEAM = '28a8dac3-3062-4842-aef5-24ece3e9a3c3';
 const LEAVER: DirectoryUser = {
   id: '5b0c7f3e-4a51-4c1e-9d43-2f6f6a2b9e10',
   full_name: 'Former Analyst',
-  email: 'former@example.com',
+  email: 'former@civitas.ai',
   team: 'team-alpha',
   roles: ['ANALYST'],
   is_active: false,
@@ -26,7 +26,7 @@ const LEAVER: DirectoryUser = {
 const AUDITOR: DirectoryUser = {
   id: '0d7e3b1a-9c2f-4e8b-a6d5-1f4c3b2a7e90',
   full_name: null,
-  email: 'auditor@example.com',
+  email: 'auditor@civitas.ai',
   team: 'team-alpha',
   roles: ['AUDITOR'],
   is_active: true,
@@ -138,7 +138,7 @@ describe('UserName', () => {
 
   it('falls back to the email when there is no name', () => {
     renderWithProviders(<UserName id={AUDITOR.id} />, { directory: PEOPLE });
-    expect(screen.getByText('auditor@example.com')).toBeInTheDocument();
+    expect(screen.getByText('auditor@civitas.ai')).toBeInTheDocument();
   });
 
   it('marks an inactive user', () => {

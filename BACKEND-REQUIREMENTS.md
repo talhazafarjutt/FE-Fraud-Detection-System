@@ -94,10 +94,10 @@ Verified by signing in as each account and reading the `scopes` array back.
 
 | Account | Scopes | Sees |
 |---|---|---|
-| `analyst@example.com` | `alerts:read` `alerts:update` `entities:read` `transactions:read` | team-alpha |
-| `other-analyst@example.com` | same | team-beta — **empty, and correct** |
-| `supervisor@example.com` | the analyst set plus `alerts:read:all` `alerts:assign` `alerts:close` `audit:read` `feedback:export` | every team |
-| `admin@example.com` | `audit:read` `users:manage` | users and the trail only — **no** alerts, cases or entities (403 on all three) |
+| `analyst@civitas.ai` | `alerts:read` `alerts:update` `entities:read` `transactions:read` | team-alpha |
+| `other-analyst@civitas.ai` | same | team-beta — **empty, and correct** |
+| `supervisor@civitas.ai` | the analyst set plus `alerts:read:all` `alerts:assign` `alerts:close` `audit:read` `feedback:export` | every team |
+| `admin@civitas.ai` | `audit:read` `users:manage` | users and the trail only — **no** alerts, cases or entities (403 on all three) |
 
 Nav items, routes and the workflow view are all driven from this array, never from a role name.
 

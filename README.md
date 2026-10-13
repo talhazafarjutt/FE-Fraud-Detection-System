@@ -32,10 +32,10 @@ The console is at <http://localhost:5173>. The backend must be reachable at the 
 
 | Account | Password | Team | Role |
 |---|---|---|---|
-| `analyst@example.com` | `SyntheticDemo!2026` | team-alpha | ANALYST |
-| `supervisor@example.com` | `SyntheticDemo!2026` | team-alpha | SUPERVISOR |
-| `other-analyst@example.com` | `SyntheticDemo!2026` | team-beta | ANALYST |
-| `admin@example.com` | `SyntheticDemo!2026` | default | ADMIN |
+| `analyst@civitas.ai` | `SyntheticDemo!2026` | team-alpha | ANALYST |
+| `supervisor@civitas.ai` | `SyntheticDemo!2026` | team-alpha | SUPERVISOR |
+| `other-analyst@civitas.ai` | `SyntheticDemo!2026` | team-beta | ANALYST |
+| `admin@civitas.ai` | `SyntheticDemo!2026` | default | ADMIN |
 
 Machine clients: `ingest-loader` / `demo-ingest-secret-not-for-production`, and
 `ml-service` / `demo-ml-secret-not-for-production`.

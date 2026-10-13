@@ -234,7 +234,10 @@ describe('evidence', () => {
     const block = screen.getByRole('region', { name: 'Islamic layer' });
     expect(within(block).getByText(CHIP)).toBeInTheDocument();
     expect(within(block).getByText('THIRD_PARTY_REPAYMENT')).toBeInTheDocument();
-    expect(within(block).getByText('HIGH')).toBeInTheDocument();
+    // A layer-added rule's severity is shown in the layer's own vocabulary —
+    // "High", not the raw "HIGH" — since some of these rules are risk
+    // signals, not fraud decisions, on their own (see LayerRuleSeverity).
+    expect(within(block).getByText('High')).toBeInTheDocument();
     expect(within(block).getByText('Added by Islamic layer')).toBeInTheDocument();
     expect(within(block).queryByText('Set aside')).toBeNull();
     // 6.01 -> 70, floored like every other score.

@@ -48,7 +48,7 @@ const get = (token: string, path: string) =>
 
 describe('demo mode serves the live contract', () => {
   it('cases carry the grouping, and a concluded one carries its verdict', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
 
     const list = await get(token, '/v1/cases?limit=50');
     expect(list.status).toBe(200);
@@ -72,7 +72,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('refuses a verdict with no feedback block, and names the legal moves on a bad one', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
     const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
     const open = page.items.find((c) => c.status === 'OPEN');
     expect(open).toBeDefined();
@@ -96,7 +96,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('an analyst cannot conclude, and cannot read the trail', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
     const open = page.items.find((c) => c.status === 'OPEN');
 
@@ -114,7 +114,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('entities parse, and direction is relative to the party', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
 
     const page = parsePageTolerant(entitySchema, await (await get(token, '/v1/entities?limit=50')).json());
     expect(page.skipped).toBe(0);
@@ -140,7 +140,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('the graph honours the node budget and admits when it truncated', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const entities = parsePageTolerant(
       entitySchema,
       await (await get(token, '/v1/entities?limit=50')).json(),
@@ -165,7 +165,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('the audit trail is readable by an admin and records what they did', async () => {
-    const token = await signIn('admin@example.com');
+    const token = await signIn('admin@civitas.ai');
     const page = parsePageTolerant(
       auditEntrySchema,
       await (await get(token, '/v1/audit-logs?limit=50')).json(),
@@ -185,19 +185,19 @@ describe('demo mode serves the live contract', () => {
 
   it('the directory parses and is team-scoped like the live API', async () => {
     const supervisor = directoryListSchema.parse(
-      await (await get(await signIn('supervisor@example.com'), '/v1/users/directory')).json(),
+      await (await get(await signIn('supervisor@civitas.ai'), '/v1/users/directory')).json(),
     );
     expect(new Set(supervisor.map((u) => u.team)).size).toBeGreaterThan(1);
 
     const analyst = directoryListSchema.parse(
-      await (await get(await signIn('analyst@example.com'), '/v1/users/directory')).json(),
+      await (await get(await signIn('analyst@civitas.ai'), '/v1/users/directory')).json(),
     );
     expect(analyst.every((u) => u.team === 'team-alpha')).toBe(true);
-    expect(analyst.find((u) => u.email === 'analyst@example.com')?.can_investigate).toBe(true);
+    expect(analyst.find((u) => u.email === 'analyst@civitas.ai')?.can_investigate).toBe(true);
   });
 
   it('findings save on an open case, are frozen on a concluded one, and a lone note is refused', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
     const open = page.items.find((c) => c.status === 'IN_REVIEW')!;
     const concluded = page.items.find((c) => findingsLocked(String(c.status)))!;
@@ -226,10 +226,10 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('assignment validates the assignee and carries the open member alerts', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
     const people = directoryListSchema.parse(await (await get(token, '/v1/users/directory')).json());
-    const analyst = people.find((u) => u.email === 'analyst@example.com')!;
-    const outsider = people.find((u) => u.email === 'other-analyst@example.com')!;
+    const analyst = people.find((u) => u.email === 'analyst@civitas.ai')!;
+    const outsider = people.find((u) => u.email === 'other-analyst@civitas.ai')!;
 
     const page = parsePageTolerant(caseSchema, await (await get(token, '/v1/cases?limit=50')).json());
     const target = page.items.find((c) => c.team === 'team-alpha' && c.status === 'OPEN')!;
@@ -259,7 +259,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('a validated verdict can be batched and downloaded; a cancelled batch cannot', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
     const send = (method: string, path: string, body?: unknown) =>
       fetch(`${BASE}${path}`, {
         method,
@@ -312,7 +312,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('excluding without a reason is a 409, and validating with a null note clears it', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
     const records = parsePageTolerant(
       labelledFeedbackSchema,
       await (await get(token, '/v1/labelled-feedback/records?final_label=FALSE_POSITIVE')).json(),
@@ -358,7 +358,7 @@ describe('demo mode serves the live contract', () => {
     );
     expect(listed.items.length).toBeGreaterThan(0);
 
-    const analyst = await signIn('analyst@example.com');
+    const analyst = await signIn('analyst@civitas.ai');
     expect((await get(analyst, '/v1/labelled-feedback/batches')).status).toBe(403);
 
     // A team-scoped reviewer sees only their team's batches; the rest are 404.
@@ -373,7 +373,7 @@ describe('demo mode serves the live contract', () => {
   });
 
   it('a team with no traffic sees empty lists, not errors', async () => {
-    const token = await signIn('other-analyst@example.com');
+    const token = await signIn('other-analyst@civitas.ai');
     for (const path of ['/v1/cases', '/v1/entities']) {
       const response = await get(token, path);
       expect(response.status, `${path} should answer, not fail`).toBe(200);

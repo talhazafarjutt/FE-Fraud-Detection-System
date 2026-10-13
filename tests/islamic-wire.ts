@@ -1,6 +1,6 @@
 /**
  * Layer payloads for the console tests, captured from the local API as
- * supervisor@example.com on 2026-10-04/05.
+ * supervisor@civitas.ai on 2026-10-04/05.
  *
  * WIRE_*_CORE / WIRE_META_OFF / WIRE_TRANSACTION: layer OFF.
  * Everything else: layer ON (`LAYERS=civitas_islamic`, synthetic Islamic book

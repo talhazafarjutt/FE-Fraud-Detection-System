@@ -290,7 +290,7 @@ export const TRANSACTION_FIXTURES: Record<string, Transaction> = Object.fromEntr
 export const USER_FIXTURES: User[] = [
   {
     id: uuid(1, 'analyst'),
-    email: 'analyst@example.com',
+    email: 'analyst@civitas.ai',
     full_name: 'Analyst',
     team: 'team-alpha',
     is_active: true,
@@ -298,7 +298,7 @@ export const USER_FIXTURES: User[] = [
   },
   {
     id: uuid(2, 'supervisor'),
-    email: 'supervisor@example.com',
+    email: 'supervisor@civitas.ai',
     full_name: 'Supervisor',
     team: 'team-alpha',
     is_active: true,
@@ -313,7 +313,7 @@ export const USER_FIXTURES: User[] = [
   },
   {
     id: uuid(3, 'other'),
-    email: 'other-analyst@example.com',
+    email: 'other-analyst@civitas.ai',
     full_name: 'Other Analyst',
     team: 'team-beta',
     is_active: true,
@@ -321,7 +321,7 @@ export const USER_FIXTURES: User[] = [
   },
   {
     id: uuid(4, 'admin'),
-    email: 'admin@example.com',
+    email: 'admin@civitas.ai',
     full_name: 'Admin',
     team: 'default',
     is_active: true,
@@ -336,11 +336,11 @@ export const USER_FIXTURES: User[] = [
  * model — in particular that an ADMIN can see case data, which they cannot.
  */
 export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> = {
-  'analyst@example.com': {
+  'analyst@civitas.ai': {
     scopes: ['alerts:read', 'alerts:update', 'entities:read', 'transactions:read'],
     team: 'team-alpha',
   },
-  'supervisor@example.com': {
+  'supervisor@civitas.ai': {
     scopes: [
       'alerts:assign',
       'alerts:close',
@@ -355,13 +355,13 @@ export const ACCOUNT_SCOPES: Record<string, { scopes: string[]; team: string }> 
     ],
     team: 'team-alpha',
   },
-  'other-analyst@example.com': {
+  'other-analyst@civitas.ai': {
     scopes: ['alerts:read', 'alerts:update', 'entities:read', 'transactions:read'],
     team: 'team-beta',
   },
   // ADMIN administers people and reads the trail. No alerts, no cases, no
   // entities — managing users deliberately does not grant the case files.
-  'admin@example.com': { scopes: ['audit:read', 'users:manage'], team: 'default' },
+  'admin@civitas.ai': { scopes: ['audit:read', 'users:manage'], team: 'default' },
 };
 
 export const CLIENT_SCOPES: Record<string, string[]> = {

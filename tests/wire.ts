@@ -1,8 +1,8 @@
 import type { DirectoryUser } from '@/api/schemas/users';
 
 /**
- * Responses captured from the local API (supervisor@example.com and
- * analyst@example.com), for the findings, assignment, directory and download
+ * Responses captured from the local API (supervisor@civitas.ai and
+ * analyst@civitas.ai), for the findings, assignment, directory and download
  * contracts. Regenerate by repeating the calls named on each constant.
  */
 
@@ -11,7 +11,7 @@ export const WIRE_DIRECTORY: DirectoryUser[] = [
   {
     id: 'e11faeb1-7964-4c6c-aa45-c6a63b23f461',
     full_name: 'Admin',
-    email: 'admin@example.com',
+    email: 'admin@civitas.ai',
     team: 'default',
     roles: ['ADMIN'],
     is_active: true,
@@ -20,7 +20,7 @@ export const WIRE_DIRECTORY: DirectoryUser[] = [
   {
     id: '8154776a-c4da-41aa-8245-522cc45d00e1',
     full_name: 'Analyst',
-    email: 'analyst@example.com',
+    email: 'analyst@civitas.ai',
     team: 'team-alpha',
     roles: ['ANALYST'],
     is_active: true,
@@ -29,7 +29,7 @@ export const WIRE_DIRECTORY: DirectoryUser[] = [
   {
     id: '28a8dac3-3062-4842-aef5-24ece3e9a3c3',
     full_name: 'Other-Analyst',
-    email: 'other-analyst@example.com',
+    email: 'other-analyst@civitas.ai',
     team: 'team-beta',
     roles: ['ANALYST'],
     is_active: true,
@@ -38,7 +38,7 @@ export const WIRE_DIRECTORY: DirectoryUser[] = [
   {
     id: 'c8684733-a3ec-4cea-a174-00fc0070012f',
     full_name: 'Supervisor',
-    email: 'supervisor@example.com',
+    email: 'supervisor@civitas.ai',
     team: 'team-alpha',
     roles: ['SUPERVISOR'],
     is_active: true,

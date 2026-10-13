@@ -42,7 +42,7 @@ const SETTLEMENT = ISLAMIC_FIXTURES.find(
 
 describe('demo mode with the Islamic layer on', () => {
   it('serves /v1/meta with the layer, its typologies and products', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const raw: unknown = await (await get(token, '/v1/meta')).json();
     // Exactly what the live layer-on API answers.
     expect(raw).toEqual(WIRE_META_ON);
@@ -63,7 +63,7 @@ describe('demo mode with the Islamic layer on', () => {
   });
 
   it('queue rows carry facts only; the detail carries the findings', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const page = await (await get(token, '/v1/fraud-alerts?limit=200')).json();
     const rows = parsePageTolerant(alertSchema, page);
     expect(rows.skipped).toBe(0);
@@ -79,7 +79,7 @@ describe('demo mode with the Islamic layer on', () => {
   });
 
   it('a Murabaha early settlement has ORIGIN_ACCOUNT_DRAIN set aside and raises no alert', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const id = SETTLEMENT.transaction.id;
     const score = riskSchema.parse(await (await get(token, `/v1/transactions/${id}/score`)).json());
     const finding = score.layer_findings?.['islamic'];
@@ -96,7 +96,7 @@ describe('demo mode with the Islamic layer on', () => {
   });
 
   it('a concluded Takaful case keeps the findings on its verdict and labelled record', async () => {
-    const token = await signIn('supervisor@example.com');
+    const token = await signIn('supervisor@civitas.ai');
     const claim = ISLAMIC_ALERTS.find((a) => a.layer_facts?.['islamic']?.product === 'TAKAFUL')!;
     const detail = caseDetailSchema.parse(
       await (await get(token, `/v1/cases/${claim.case_id}`)).json(),
@@ -117,7 +117,7 @@ describe('demo mode with the Islamic layer on', () => {
   });
 
   it('summarises per product and per rule, scoped to the team', async () => {
-    const token = await signIn('analyst@example.com');
+    const token = await signIn('analyst@civitas.ai');
     const summary = islamicSummarySchema.parse(
       await (await get(token, '/v1/islamic/summary')).json(),
     );
@@ -133,13 +133,13 @@ describe('demo mode with the Islamic layer on', () => {
     );
 
     // team-beta has no Islamic traffic.
-    const beta = await signIn('other-analyst@example.com');
+    const beta = await signIn('other-analyst@civitas.ai');
     const empty = islamicSummarySchema.parse(await (await get(beta, '/v1/islamic/summary')).json());
     expect(empty.products.every((p) => p.transactions === 0)).toBe(true);
     expect(empty.rules).toEqual([]);
 
     // alerts:read, like every other summary read.
-    const admin = await signIn('admin@example.com');
+    const admin = await signIn('admin@civitas.ai');
     expect((await get(admin, '/v1/islamic/summary')).status).toBe(403);
   });
 });

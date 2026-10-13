@@ -11,10 +11,10 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 /** Local seed accounts. Rendered only in dev; all data is synthetic. */
 const DEMO_ACCOUNTS = [
-  { email: 'analyst@example.com', team: 'team-alpha', role: 'ANALYST' },
-  { email: 'supervisor@example.com', team: 'team-alpha', role: 'SUPERVISOR' },
-  { email: 'other-analyst@example.com', team: 'team-beta', role: 'ANALYST' },
-  { email: 'admin@example.com', team: 'default', role: 'ADMIN' },
+  { email: 'analyst@civitas.ai', team: 'team-alpha', role: 'ANALYST' },
+  { email: 'supervisor@civitas.ai', team: 'team-alpha', role: 'SUPERVISOR' },
+  { email: 'other-analyst@civitas.ai', team: 'team-beta', role: 'ANALYST' },
+  { email: 'admin@civitas.ai', team: 'default', role: 'ADMIN' },
 ] as const;
 const DEMO_PASSWORD = 'SyntheticDemo!2026';
 

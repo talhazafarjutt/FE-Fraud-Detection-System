@@ -241,17 +241,19 @@ describe('every sample', () => {
     },
   );
 
-  it('groups into exactly seven legitimate and eight fraud scenarios', () => {
+  it('groups into exactly seven legitimate, eight fraud and three warning scenarios', () => {
     expect(SAMPLES.filter((s) => s.group === 'legitimate')).toHaveLength(7);
     expect(SAMPLES.filter((s) => s.group === 'fraud')).toHaveLength(8);
+    expect(SAMPLES.filter((s) => s.group === 'warning')).toHaveLength(3);
   });
 
-  it('marks only L3, F3 and F6 as needing setup transactions', () => {
+  it('marks only L3, F3, F6 and W3 as needing setup transactions', () => {
     const withSetup = SAMPLES.filter((s) => s.hasSetup).map((s) => s.id);
     expect(withSetup).toEqual([
       'l3-instalment-matches-schedule',
       'f3-settlement-funded-by-fan-in',
       'f6-charity-diversion',
+      'w3-charity-registered-organisation',
     ]);
     for (const sample of SAMPLES) {
       expect(sample.generate().setup.length > 0).toBe(sample.hasSetup);
@@ -295,15 +297,21 @@ describe('Islamic contract section', () => {
 });
 
 describe('sample select', () => {
-  it('groups samples into legitimate and fraud optgroups', () => {
+  it('groups samples into legitimate, fraud and warning optgroups', () => {
     renderPage([[metaKey, META_ON]]);
     const select = screen.getByLabelText('Load sample') as HTMLSelectElement;
     const groups = [...select.querySelectorAll('optgroup')].map((g) => g.label);
-    expect(groups).toEqual(['Legitimate — no alert expected', 'Fraud — alert expected']);
+    expect(groups).toEqual([
+      'Legitimate — no alert expected',
+      'Fraud — alert expected',
+      'Warning — signal only, no alert',
+    ]);
     const legit = select.querySelector('optgroup[label^="Legitimate"]')!;
     expect(legit.querySelectorAll('option')).toHaveLength(7);
     const fraud = select.querySelector('optgroup[label^="Fraud"]')!;
     expect(fraud.querySelectorAll('option')).toHaveLength(8);
+    const warning = select.querySelector('optgroup[label^="Warning"]')!;
+    expect(warning.querySelectorAll('option')).toHaveLength(3);
   });
 
   it('refuses to load a setup sample without an open ingest session', async () => {

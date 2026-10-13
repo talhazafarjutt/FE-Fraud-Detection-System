@@ -1,6 +1,6 @@
 import type { LayerFinding, LayerFindings as Findings } from '@/api/schemas/layers';
 import type { LayerProduct } from '@/api/schemas/meta';
-import { RuleSeverity } from '@/features/alerts/EvidencePanels';
+import { cx } from '@/components/primitives';
 import { formatRiskScore } from '@/lib/risk';
 import { layerLabel } from './facts';
 import { ProductChip } from './ProductChip';
@@ -60,7 +60,7 @@ function LayerBlock({
         <ul className="divide-y divide-rule-soft">
           {added.map((rule) => (
             <li key={`added-${rule.rule}`} className="flex flex-wrap items-start gap-4 p-5">
-              <RuleSeverity severity={rule.severity} />
+              <LayerRuleSeverity severity={rule.severity} />
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[12px] text-ink">{rule.rule}</p>
                 {rule.description ? (
@@ -98,6 +98,31 @@ function LayerBlock({
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * A layer-added rule's severity, in the layer's own vocabulary: some of these
+ * rules (Takaful, charity, third-party repayment) are risk signals rather
+ * than fraud decisions on their own, MEDIUM until a second reason
+ * corroborates them to HIGH. "Warning"/"High" names that plainly, rather than
+ * showing the raw MEDIUM/HIGH an analyst would otherwise have to translate.
+ */
+export function LayerRuleSeverity({ severity }: { severity: string | null | undefined }) {
+  const text = severity === 'HIGH' ? 'High' : severity === 'MEDIUM' ? 'Warning' : severity ?? 'RULE';
+  return (
+    <span
+      className={cx(
+        'inline-flex border px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-tag',
+        severity === 'HIGH'
+          ? 'border-carmine text-carmine'
+          : severity === 'MEDIUM'
+            ? 'border-amber text-amber'
+            : 'border-rule text-ink-3',
+      )}
+    >
+      {text}
+    </span>
   );
 }
 

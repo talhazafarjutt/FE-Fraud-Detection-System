@@ -25,7 +25,7 @@ import { WIRE_BATCH, WIRE_BATCH_RECORD, WIRE_RECORDS_PAGE } from './wire';
  * not written from documentation. Fixtures typed from a brief are how this
  * console once rejected every row of a working ledger.
  *
- * Regenerate by calling the local API as supervisor@example.com: the records
+ * Regenerate by calling the local API as supervisor@civitas.ai: the records
  * list, one record, the batches list, a batch, its records, a 409 from creating
  * a batch with a PENDING record, and /v1/metrics/overview (series trimmed).
  */

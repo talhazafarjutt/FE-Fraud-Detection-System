@@ -190,10 +190,21 @@ function PollStatus({
 }
 
 /**
+ * "warning" / "high" — the layer's own vocabulary for MEDIUM/HIGH, since
+ * three of its rules are risk signals rather than fraud decisions on their
+ * own (see samples.ts and LayerFindings.tsx).
+ */
+function severityWord(severity: string | null | undefined): string {
+  return severity === 'HIGH' ? 'high' : severity === 'MEDIUM' ? 'warning' : severity ?? '';
+}
+
+/**
  * "Expected: … / Got: …" — the sample's prediction next to what the live
  * engine actually did. `alert ≥70 or an alert reference` matches the
  * backend's own `should_open_alert` gate (risk_bands.band_for >= HIGH, or any
- * network evidence, which still opens an alert even at a lower score).
+ * network evidence, which still opens an alert even at a lower score, which is
+ * exactly how a layer MEDIUM signal can still end up alerted: core network
+ * evidence opens it regardless of the layer's own severity).
  */
 function ExpectedVsGot({
   expected,
@@ -209,13 +220,16 @@ function ExpectedVsGot({
   const findings = risk.layer_findings?.['islamic'];
   const gotAdded = findings?.added.map((rule) => rule.rule) ?? [];
   const gotSetAside = findings?.set_aside.map((rule) => rule.rule) ?? [];
+  const gotSeverity = findings?.added[0]?.severity ?? null;
 
   const sameSet = (a: string[], b: string[]) =>
     a.length === b.length && a.every((rule) => b.includes(rule));
+  const severityMatches = !expected.severity || gotSeverity === expected.severity;
   const matches =
     expected.alert === gotAlert &&
     sameSet(expected.added ?? [], gotAdded) &&
-    sameSet(expected.setAside ?? [], gotSetAside);
+    sameSet(expected.setAside ?? [], gotSetAside) &&
+    severityMatches;
 
   return (
     <div className={`border px-4 py-3 text-[14px] ${matches ? 'border-sage' : 'border-carmine'}`}>
@@ -223,13 +237,19 @@ function ExpectedVsGot({
       <p className="text-ink-2">
         <span className="font-mono text-[12px] uppercase tracking-tag text-ink-3">Expected</span>{' '}
         {expected.alert ? 'alert' : 'no alert'}
-        {expected.added?.length ? ` · added ${expected.added.join(', ')}` : ''}
+        {expected.added?.length
+          ? ` · added ${expected.added.join(', ')}${
+              expected.severity ? ` (${severityWord(expected.severity)})` : ''
+            }`
+          : ''}
         {expected.setAside?.length ? ` · set aside ${expected.setAside.join(', ')}` : ''}
       </p>
       <p className="text-ink-2">
         <span className="font-mono text-[12px] uppercase tracking-tag text-ink-3">Got</span>{' '}
         {gotAlert ? 'alert' : 'no alert'} (score {formatRiskScore(score)})
-        {gotAdded.length ? ` · added ${gotAdded.join(', ')}` : ''}
+        {gotAdded.length
+          ? ` · added ${gotAdded.join(', ')}${gotSeverity ? ` (${severityWord(gotSeverity)})` : ''}`
+          : ''}
         {gotSetAside.length ? ` · set aside ${gotSetAside.join(', ')}` : ''}
       </p>
     </div>

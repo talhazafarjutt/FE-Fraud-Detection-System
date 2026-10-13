@@ -222,6 +222,7 @@ export default function TransactionsPage() {
 
   const legitimateSamples = SAMPLES.filter((sample) => sample.group === 'legitimate');
   const fraudSamples = SAMPLES.filter((sample) => sample.group === 'fraud');
+  const warningSamples = SAMPLES.filter((sample) => sample.group === 'warning');
 
   return (
     <div className="space-y-10">
@@ -261,6 +262,13 @@ export default function TransactionsPage() {
                 </option>
               ))}
             </optgroup>
+            <optgroup label="Warning — signal only, no alert">
+              {warningSamples.map((sample) => (
+                <option key={sample.id} value={sample.id}>
+                  {sample.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
       </header>
@@ -276,7 +284,11 @@ export default function TransactionsPage() {
         <p className="border border-rule-soft px-4 py-3 text-[14px] text-ink-2">
           <span className="mono-label mr-2 text-ink-3">Expected — {expectedLabel}</span>
           {expected.alert ? 'An alert should open.' : 'No alert should open.'}
-          {expected.added?.length ? ` Added: ${expected.added.join(', ')}.` : ''}
+          {expected.added?.length
+            ? ` Added: ${expected.added.join(', ')}${
+                expected.severity ? ` (${expected.severity === 'HIGH' ? 'high' : 'warning'})` : ''
+              }.`
+            : ''}
           {expected.setAside?.length ? ` Set aside: ${expected.setAside.join(', ')}.` : ''}
         </p>
       ) : null}

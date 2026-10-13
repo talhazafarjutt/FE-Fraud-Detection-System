@@ -55,8 +55,8 @@ export const META_FIXTURE = {
 
 const ENGINE = { model_name: 'fixture-rules', model_version: 'fixture-v1', risk_engine_version: 'engine-v1.2.0' };
 // The seeded team-alpha analyst and supervisor, so names resolve in the directory.
-const ANALYST = USER_FIXTURES.find((u) => u.email === 'analyst@example.com')!.id;
-const SUPERVISOR = USER_FIXTURES.find((u) => u.email === 'supervisor@example.com')!.id;
+const ANALYST = USER_FIXTURES.find((u) => u.email === 'analyst@civitas.ai')!.id;
+const SUPERVISOR = USER_FIXTURES.find((u) => u.email === 'supervisor@civitas.ai')!.id;
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -149,8 +149,12 @@ const REPAYMENT_SCORE = '5a1c0e10-7d1e-4c11-9a01-000000000402';
 const repaymentRule = {
   rule: 'THIRD_PARTY_REPAYMENT',
   severity: 'HIGH',
+  // THIRD_PARTY_REPAYMENT is a risk signal, not a fraud decision, on its own:
+  // MEDIUM on an unrelated payer alone, HIGH once a second, independent
+  // reason corroborates it — here, the payer's own account being brand new.
   description:
-    'Instalment 8 of contract MRB-2026-0412 was paid from an account that is not the customer’s.',
+    "Murabaha instalment for contract MRB-2026-0412 is paid from an account other than the " +
+    'customer’s; payer account opened 9 days ago.',
   source: ISLAMIC,
 };
 const repaymentFacts = {
@@ -273,7 +277,13 @@ const CLAIM_SCORE = '5a1c0e10-7d1e-4c11-9a01-000000000403';
 const claimRule = {
   rule: 'TAKAFUL_EARLY_CLAIM',
   severity: 'HIGH',
-  description: 'Claim on contract TKF-2026-0044 paid 12 days after the contract started.',
+  // TAKAFUL_EARLY_CLAIM is a risk signal, not a fraud decision, on its own:
+  // MEDIUM on an early claim alone, HIGH once a second, independent reason
+  // corroborates it — here, a payee who is not the participant, on an
+  // account opened only last week.
+  description:
+    'claim 12 days after the cover started; paid to an account other than the participant’s; ' +
+    'payout account opened 7 days ago.',
   source: ISLAMIC,
 };
 const claimFacts = {

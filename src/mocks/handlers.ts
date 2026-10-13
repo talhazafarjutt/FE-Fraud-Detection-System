@@ -477,14 +477,14 @@ export const handlers = [
   http.post('*/v1/auth/refresh', async () =>
     HttpResponse.json({
       access_token: issue(
-        ACCOUNT_SCOPES['analyst@example.com']?.scopes ?? [],
+        ACCOUNT_SCOPES['analyst@civitas.ai']?.scopes ?? [],
         'team-alpha',
         mockUuid(),
       ),
       refresh_token: `mock-refresh-${mockUuid()}`,
       token_type: 'bearer',
       expires_in: 900,
-      scopes: ACCOUNT_SCOPES['analyst@example.com']?.scopes ?? [],
+      scopes: ACCOUNT_SCOPES['analyst@civitas.ai']?.scopes ?? [],
     }),
   ),
 

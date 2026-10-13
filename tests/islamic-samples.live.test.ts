@@ -12,7 +12,7 @@ import { buildTransactionPayload } from '@/features/transactions/payload';
 import { SAMPLES, type Sample } from '@/features/transactions/samples';
 
 /**
- * Proves every one of the fifteen Islamic samples against the LIVE API —
+ * Proves every one of the eighteen Islamic samples against the LIVE API —
  * not a mock, not a fixture. Skipped unless LIVE_API is set, because it needs
  * a running backend and writes real transactions into its database.
  *
@@ -23,7 +23,7 @@ import { SAMPLES, type Sample } from '@/features/transactions/samples';
  *                          is DEMO_INGEST_SECRET's default from
  *                          app/core/config.py in the backend repo — passed in
  *                          here, never written into this file.
- *   LIVE_ANALYST_PASSWORD  a password for `analyst@example.com`, which this
+ *   LIVE_ANALYST_PASSWORD  a password for `analyst@civitas.ai`, which this
  *                          suite also needs: GET /v1/transactions/{id}/score
  *                          requires `transactions:read`, which the ingest
  *                          client does NOT hold (it has transactions:write
@@ -145,12 +145,12 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
     const analystPassword = process.env.LIVE_ANALYST_PASSWORD;
     if (!analystPassword) {
       throw new Error(
-        'Set LIVE_ANALYST_PASSWORD (analyst@example.com\'s password) to run this suite — ' +
+        'Set LIVE_ANALYST_PASSWORD (analyst@civitas.ai\'s password) to run this suite — ' +
           'GET /v1/transactions/{id}/score needs transactions:read, which the ingest client lacks.',
       );
     }
     ingestToken = await clientToken('ingest-loader', ingestSecret);
-    readToken = await login('analyst@example.com', analystPassword);
+    readToken = await login('analyst@civitas.ai', analystPassword);
   }, 30_000);
 
   for (const sample of SAMPLES) {
@@ -165,16 +165,26 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
         const setAside = [...(findings?.set_aside.map((rule) => rule.rule) ?? [])].sort();
         const expectedAdded = [...(sample.expected.added ?? [])].sort();
         const expectedSetAside = [...(sample.expected.setAside ?? [])].sort();
+        // The samples each name at most one added rule that can vary in
+        // severity (TAKAFUL_EARLY_CLAIM, CHARITY_DIVERSION,
+        // THIRD_PARTY_REPAYMENT), so the first added rule's severity is the
+        // one to compare — there is only ever one when `expected.severity` is set.
+        const gotSeverity = findings?.added[0]?.severity ?? null;
 
         // eslint-disable-next-line no-console -- the point of this suite is a readable record of the run.
         console.log(
-          `${sample.id}: expected alert=${sample.expected.alert} added=[${expectedAdded.join(', ')}] setAside=[${expectedSetAside.join(', ')}] ` +
-            `| got score=${score} alert=${gotAlert} added=[${added.join(', ')}] setAside=[${setAside.join(', ')}]`,
+          `${sample.id}: expected alert=${sample.expected.alert} added=[${expectedAdded.join(', ')}]` +
+            `${sample.expected.severity ? ` (${sample.expected.severity})` : ''} setAside=[${expectedSetAside.join(', ')}] ` +
+            `| got score=${score} alert=${gotAlert} added=[${added.join(', ')}]` +
+            `${gotSeverity ? ` (${gotSeverity})` : ''} setAside=[${setAside.join(', ')}]`,
         );
 
         expect(gotAlert, 'alert').toBe(sample.expected.alert);
         expect(added, 'rules added by the Islamic layer').toEqual(expectedAdded);
         expect(setAside, 'rules the Islamic layer set aside').toEqual(expectedSetAside);
+        if (sample.expected.severity) {
+          expect(gotSeverity, 'severity of the added rule').toBe(sample.expected.severity);
+        }
       },
       60_000,
     );
