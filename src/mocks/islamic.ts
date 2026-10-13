@@ -127,11 +127,15 @@ const settlement: IslamicFixture = {
             severity: 'HIGH',
             description:
               'The PAYMENT amount of 184,250.00 is within 1.0% of the origin balance of 184,300.00.',
-            reason: 'Scheduled early settlement of contract MRB-2026-0187 empties the account by design.',
+            // Verified: 15 instalments of 12,283.33 are left from instalment 22 of 36.
+            reason:
+              'Early settlement of contract MRB-2026-0187 matches the 184,250.00 left on its schedule, which empties the account by design.',
           },
         ],
         score_before: 70,
         score_after: 5.4,
+        // What the set-aside could not touch: nothing else on this verdict.
+        kept: { network_evidence: [], anomaly: false },
       },
     },
   },
@@ -463,11 +467,13 @@ const rental: IslamicFixture = {
             rule: 'ROUND_AMOUNT_BURST',
             severity: 'MEDIUM',
             description: 'Three round-amount payments from this account in 24 hours.',
-            reason: 'Matches the contract schedule.',
+            // Verified: the scheduled amount, booked on its due date.
+            reason: `Matches the contract schedule: 12,000.00 due on ${minutesAgo(90).slice(0, 10)}.`,
           },
         ],
         score_before: 30,
         score_after: 5.6,
+        kept: { network_evidence: [], anomaly: false },
       },
     },
   },

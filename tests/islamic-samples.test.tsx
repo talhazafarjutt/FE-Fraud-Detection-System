@@ -4,11 +4,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { isValidIban } from '@/lib/iban';
 import {
   islamicContractSchema,
+  riskSchema,
   transactionFormSchema,
   type TransactionFormParsed,
 } from '@/api/schemas/transactions';
 import { buildTransactionPayload } from '@/features/transactions/payload';
-import { EMPTY_FORM, SAMPLES, __test__ } from '@/features/transactions/samples';
+import { EMPTY_FORM, SAMPLES, __test__, keptOnVerdict } from '@/features/transactions/samples';
 import TransactionsPage from '@/features/transactions/TransactionsPage';
 import { machineTokenStore } from '@/auth/machineTokenStore';
 import { metaKey } from '@/features/layers/useMeta';
@@ -190,8 +191,114 @@ describe('islamicContractSchema required fields', () => {
   });
 });
 
+describe('due date', () => {
+  const BASE_DUE = {
+    contract_id: 'X-1',
+    instalment_no: '8',
+    tenor: '36',
+    scheduled_amount: '5000.00',
+    contract_start: '',
+    customer_iban: 'AE460090000000123456789',
+    supplier_iban: '',
+  };
+
+  it.each(['INSTALMENT', 'RENTAL'] as const)('is accepted on a scheduled %s', (event) => {
+    const product = event === 'RENTAL' ? 'IJARA' : 'MURABAHA';
+    const result = islamicContractSchema.safeParse({ ...BASE_DUE, product, event, due_date: '2026-10-13' });
+    expect(result.success).toBe(true);
+  });
+
+  it('is refused on an event that is not a scheduled payment, as the backend 422s it', () => {
+    const result = islamicContractSchema.safeParse({
+      ...BASE_DUE,
+      product: 'MURABAHA',
+      event: 'EARLY_SETTLEMENT',
+      due_date: '2026-10-13',
+    });
+    expect(result.success).toBe(false);
+    const paths = result.success ? [] : result.error.issues.map((i) => i.path.join('.'));
+    expect(paths).toEqual(['due_date']);
+  });
+
+  it('travels in metadata as due_date', () => {
+    const scenario = SAMPLES.find((s) => s.id === 'l3-instalment-matches-schedule')!.generate();
+    const body = buildTransactionPayload(parse(scenario.final));
+    expect((body['metadata'] as Record<string, unknown>)['due_date']).toBe(__test__.isoDateOffset(0));
+  });
+
+  it('is a reserved key', () => {
+    const result = transactionFormSchema.safeParse({
+      ...EMPTY_FORM,
+      amount: '100.00',
+      sender_balance_before: '1000.00',
+      receiver_balance_before: '1000.00',
+      source_account: { ...EMPTY_FORM.source_account, iban: 'AE070331234567890123456' },
+      destination_account: { ...EMPTY_FORM.destination_account, iban: 'AE460090000000123456789' },
+      metadata: [{ key: 'due_date', value: '2026-10-13' }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('false-alarm samples', () => {
+  function islamicOf(id: string) {
+    return SAMPLES.find((s) => s.id === id)!.generate().final.islamic;
+  }
+
+  it('L2 and V3 settle exactly what the schedule says is left; V1 does not', () => {
+    for (const id of ['l2-early-settlement-own-drain', 'v3-verified-settlement-after-inflow']) {
+      const terms = islamicOf(id);
+      const left = Number(terms.scheduled_amount) * (Number(terms.tenor) - Number(terms.instalment_no) + 1);
+      expect(left).toBe(156_600);
+    }
+    const v1 = islamicOf('v1-settlement-short-of-schedule');
+    expect(Number(v1.scheduled_amount) * (Number(v1.tenor) - Number(v1.instalment_no) + 1)).toBe(200_000);
+  });
+
+  it('V2 is due about three months out; L3 is due today', () => {
+    expect(islamicOf('v2-instalment-paid-months-early').due_date).toBe(__test__.isoDateOffset(90));
+    expect(islamicOf('l3-instalment-matches-schedule').due_date).toBe(__test__.isoDateOffset(0));
+  });
+
+  it('predict what still counts', () => {
+    const expected = Object.fromEntries(SAMPLES.map((s) => [s.id, s.expected]));
+    expect(expected['v1-settlement-short-of-schedule']).toEqual({
+      alert: true,
+      kept: ['ORIGIN_ACCOUNT_DRAIN'],
+    });
+    expect(expected['v2-instalment-paid-months-early']).toEqual({
+      alert: false,
+      kept: ['ROUND_AMOUNT_BURST'],
+    });
+    expect(expected['v3-verified-settlement-after-inflow']).toEqual({
+      alert: true,
+      setAside: ['ORIGIN_ACCOUNT_DRAIN'],
+      kept: ['RAPID_PASS_THROUGH'],
+    });
+  });
+
+  it('keptOnVerdict lists engine rules, network evidence and the anomaly flag, never layer rules', () => {
+    const risk = riskSchema.parse({
+      risk_level: 'HIGH',
+      model_name: 'm',
+      model_version: 'v',
+      explanation: [],
+      triggered_rules: [
+        { rule: 'ROUND_AMOUNT_BURST', severity: 'MEDIUM', description: 'x', source: null },
+        { rule: 'THIRD_PARTY_REPAYMENT', severity: 'HIGH', description: 'y', source: 'islamic' },
+      ],
+      network: { network_score: 30, evidence: [{ code: 'RAPID_PASS_THROUGH', score: 30 }] },
+      anomaly: { is_anomaly: true, anomaly_score: 90 },
+    });
+    expect(keptOnVerdict(risk)).toEqual(['ROUND_AMOUNT_BURST', 'RAPID_PASS_THROUGH', 'anomaly']);
+    expect(keptOnVerdict(riskSchema.parse({ risk_level: 'LOW', model_name: 'm', model_version: 'v' }))).toEqual(
+      [],
+    );
+  });
+});
+
 describe('reserved metadata keys', () => {
-  it('rejects a free-form metadata row that reuses one of the nine Islamic keys', () => {
+  it('rejects a free-form metadata row that reuses one of the ten Islamic keys', () => {
     const values = {
       ...EMPTY_FORM,
       amount: '100.00',
@@ -241,19 +348,26 @@ describe('every sample', () => {
     },
   );
 
-  it('groups into exactly seven legitimate, eight fraud and three warning scenarios', () => {
+  it('groups into seven legitimate, eight fraud, three warning and three false-alarm checks', () => {
     expect(SAMPLES.filter((s) => s.group === 'legitimate')).toHaveLength(7);
     expect(SAMPLES.filter((s) => s.group === 'fraud')).toHaveLength(8);
     expect(SAMPLES.filter((s) => s.group === 'warning')).toHaveLength(3);
+    expect(SAMPLES.filter((s) => s.group === 'check').map((s) => s.id)).toEqual([
+      'v1-settlement-short-of-schedule',
+      'v2-instalment-paid-months-early',
+      'v3-verified-settlement-after-inflow',
+    ]);
   });
 
-  it('marks only L3, F3, F6 and W3 as needing setup transactions', () => {
+  it('marks only L3, F3, F6, W3, V2 and V3 as needing setup transactions', () => {
     const withSetup = SAMPLES.filter((s) => s.hasSetup).map((s) => s.id);
     expect(withSetup).toEqual([
       'l3-instalment-matches-schedule',
       'f3-settlement-funded-by-fan-in',
       'f6-charity-diversion',
       'w3-charity-registered-organisation',
+      'v2-instalment-paid-months-early',
+      'v3-verified-settlement-after-inflow',
     ]);
     for (const sample of SAMPLES) {
       expect(sample.generate().setup.length > 0).toBe(sample.hasSetup);
@@ -294,10 +408,26 @@ describe('Islamic contract section', () => {
     expect(screen.getByText(/Islamic contract/)).toBeInTheDocument();
     expect(screen.getByLabelText('Product')).toBeInTheDocument();
   });
+
+  it('asks for a due date only on a scheduled payment, and says what verifies each set-aside', () => {
+    renderPage([[metaKey, META_ON]]);
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'MURABAHA' } });
+    const event = screen.getByLabelText('Event');
+
+    fireEvent.change(event, { target: { value: 'INSTALMENT' } });
+    expect(screen.getByLabelText('Due date')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled amount and due date verify the schedule.')).toBeInTheDocument();
+
+    fireEvent.change(event, { target: { value: 'EARLY_SETTLEMENT' } });
+    expect(screen.queryByLabelText('Due date')).toBeNull();
+    expect(
+      screen.getByText(/instalment n of N let the system verify the settlement; without them the "account emptied" warning stays/),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('sample select', () => {
-  it('groups samples into legitimate, fraud and warning optgroups', () => {
+  it('groups samples into legitimate, fraud, warning and false-alarm check optgroups', () => {
     renderPage([[metaKey, META_ON]]);
     const select = screen.getByLabelText('Load sample') as HTMLSelectElement;
     const groups = [...select.querySelectorAll('optgroup')].map((g) => g.label);
@@ -305,7 +435,10 @@ describe('sample select', () => {
       'Legitimate — no alert expected',
       'Fraud — alert expected',
       'Warning — signal only, no alert',
+      'False-alarm checks',
     ]);
+    const checks = select.querySelector('optgroup[label="False-alarm checks"]')!;
+    expect(checks.querySelectorAll('option')).toHaveLength(3);
     const legit = select.querySelector('optgroup[label^="Legitimate"]')!;
     expect(legit.querySelectorAll('option')).toHaveLength(7);
     const fraud = select.querySelector('optgroup[label^="Fraud"]')!;

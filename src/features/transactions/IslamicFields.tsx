@@ -2,6 +2,8 @@ import { useFormContext, useWatch } from 'react-hook-form';
 import {
   ISLAMIC_PRODUCTS,
   ISLAMIC_PRODUCT_EVENTS,
+  ISLAMIC_SCHEDULED_EVENTS,
+  type IslamicEvent,
   type IslamicContractFieldKey,
   type IslamicProduct,
   islamicRequiredFields,
@@ -24,9 +26,25 @@ const FIELD_LABEL: Record<IslamicContractFieldKey, string> = {
   tenor: 'Tenor',
   scheduled_amount: 'Scheduled amount',
   contract_start: 'Contract start',
+  due_date: 'Due date',
   customer_iban: 'Customer IBAN',
   supplier_iban: 'Supplier IBAN',
 };
+
+/**
+ * What lets the layer verify a false-alarm set-aside, per event. A set-aside
+ * is only made when the contract explains the core warning; without these
+ * terms the warning simply stays.
+ */
+function verificationHint(event: string): string | null {
+  if (event === 'EARLY_SETTLEMENT') {
+    return 'Scheduled amount and instalment n of N let the system verify the settlement; without them the "account emptied" warning stays.';
+  }
+  if (ISLAMIC_SCHEDULED_EVENTS.includes(event as IslamicEvent)) {
+    return 'Scheduled amount and due date verify the schedule.';
+  }
+  return null;
+}
 
 function eventsFor(product: string, products: readonly LayerProduct[]): readonly string[] {
   if (!product) return [];
@@ -50,6 +68,8 @@ export function IslamicFields({ products }: { products: readonly LayerProduct[] 
   const required = islamicRequiredFields(product, event);
   const isRequired = (key: IslamicContractFieldKey) => required.includes(key);
   const mark = (key: IslamicContractFieldKey) => (isRequired(key) ? ' *' : '');
+  const scheduled = ISLAMIC_SCHEDULED_EVENTS.includes(event as IslamicEvent);
+  const hint = verificationHint(event);
 
   const productField = register('islamic.product');
 
@@ -102,6 +122,7 @@ export function IslamicFields({ products }: { products: readonly LayerProduct[] 
               <>Nothing beyond the product and event is required for this event.</>
             )}
           </p>
+          {hint ? <p className="text-[13px] text-ink-3">{hint}</p> : null}
 
           <div className="grid gap-6 md:grid-cols-3">
             <Field
@@ -161,6 +182,22 @@ export function IslamicFields({ products }: { products: readonly LayerProduct[] 
                 {...register('islamic.contract_start')}
               />
             </Field>
+
+            {scheduled ? (
+              <Field
+                label={`Due date${mark('due_date')}`}
+                htmlFor="islamic.due_date"
+                error={errs?.due_date}
+                hint="When this payment falls due on the schedule."
+              >
+                <input
+                  id="islamic.due_date"
+                  type="date"
+                  className="field"
+                  {...register('islamic.due_date')}
+                />
+              </Field>
+            ) : null}
 
             <Field
               label={`Customer IBAN${mark('customer_iban')}`}

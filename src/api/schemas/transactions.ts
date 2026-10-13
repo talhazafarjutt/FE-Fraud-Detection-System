@@ -159,8 +159,20 @@ export type IslamicContractFieldKey =
   | 'tenor'
   | 'scheduled_amount'
   | 'contract_start'
+  | 'due_date'
   | 'customer_iban'
   | 'supplier_iban';
+
+/**
+ * Events that are one payment of a schedule and so may carry a due date —
+ * civitas_islamic/products.py SCHEDULED_EVENTS. The backend 422s `due_date`
+ * on any other event.
+ */
+export const ISLAMIC_SCHEDULED_EVENTS: readonly IslamicEvent[] = [
+  'INSTALMENT',
+  'RENTAL',
+  'PROFIT_DISTRIBUTION',
+];
 
 /** Keys an event cannot be checked without — civitas_islamic/products.py EVENT_REQUIRES. */
 export const ISLAMIC_EVENT_REQUIRES: Record<IslamicEvent, readonly IslamicContractFieldKey[]> = {
@@ -182,7 +194,7 @@ export const ISLAMIC_PRODUCT_EVENT_EXTRA_REQUIRES: Partial<
   'MURABAHA:DISBURSEMENT': ['supplier_iban'],
 };
 
-/** The nine reserved keys. A free-form metadata row may not reuse one of them. */
+/** The ten reserved keys. A free-form metadata row may not reuse one of them. */
 export const ISLAMIC_METADATA_KEYS: readonly string[] = [
   'product',
   'event',
@@ -191,6 +203,7 @@ export const ISLAMIC_METADATA_KEYS: readonly string[] = [
   'tenor',
   'scheduled_amount',
   'contract_start',
+  'due_date',
   'customer_iban',
   'supplier_iban',
 ];
@@ -237,6 +250,7 @@ export const islamicContractSchema = z
     tenor: optionalPositiveInt,
     scheduled_amount: optionalAmountField,
     contract_start: z.string().optional().or(z.literal('')),
+    due_date: z.string().optional().or(z.literal('')),
     customer_iban: optionalIbanField,
     supplier_iban: optionalIbanField,
   })
@@ -259,6 +273,14 @@ export const islamicContractSchema = z
         message: `${event} is not an event of a ${product} contract.`,
       });
       return;
+    }
+
+    if (contract.due_date && !ISLAMIC_SCHEDULED_EVENTS.includes(event as IslamicEvent)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['due_date'],
+        message: 'Only a scheduled payment (instalment, rental, profit distribution) has a due date.',
+      });
     }
 
     for (const key of islamicRequiredFields(product, event)) {
@@ -320,7 +342,7 @@ export const transactionFormSchema = z
         message: 'Metadata keys must be unique.',
       });
     }
-    // The Islamic contract section owns these nine keys; a free-form row
+    // The Islamic contract section owns these ten keys; a free-form row
     // reusing one would silently collide with it in the merged payload.
     tx.metadata.forEach((entry, index) => {
       if (entry.key && ISLAMIC_METADATA_KEYS.includes(entry.key)) {
@@ -355,6 +377,22 @@ export const riskSchema = z.object({
   latency_ms: z.number().int().nullable().default(null),
   scored_at: isoDateTime.nullable().default(null),
   layer_findings: layerFindingsSchema.optional(),
+  // The verdict's own evidence, read only far enough to say what still counts
+  // after a layer set something aside (engine rules carry no `source`).
+  triggered_rules: z
+    .array(z.object({ rule: z.string(), source: z.string().nullish() }).passthrough())
+    .nullish()
+    .catch(null),
+  network: z
+    .object({ evidence: z.array(z.object({ code: z.string() }).passthrough()).nullish() })
+    .passthrough()
+    .nullish()
+    .catch(null),
+  anomaly: z
+    .object({ is_anomaly: z.boolean().nullish() })
+    .passthrough()
+    .nullish()
+    .catch(null),
 });
 export type Risk = z.infer<typeof riskSchema>;
 

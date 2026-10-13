@@ -1,13 +1,15 @@
-import type { TransactionFormValues } from '@/api/schemas/transactions';
+import type { Risk, TransactionFormValues } from '@/api/schemas/transactions';
 
 /**
- * Eighteen Islamic-first scenarios against the live engine: seven legitimate
+ * Twenty-one Islamic-first scenarios against the live engine: seven legitimate
  * contracts, each the twin of a fraud pattern; eight fraud scenarios (F7 is a
  * warning-only CONTRACT_INCOHERENT finding that should NOT raise an alert on
- * its own); and three "signal only" warnings (W1-W3) where a risk-signal rule
+ * its own); three "signal only" warnings (W1-W3) where a risk-signal rule
  * (TAKAFUL_EARLY_CLAIM, CHARITY_DIVERSION, THIRD_PARTY_REPAYMENT) fires MEDIUM
  * with nothing corroborating it to HIGH, so it stays a warning rather than an
- * alert. Core's own network evidence can still open an alert on any sample
+ * alert; and three false-alarm checks (V1-V3) proving a set-aside removes only
+ * the core warning the verified contract explains — never an unverified one,
+ * never network, anomaly or entity evidence. Core's own network evidence can still open an alert on any sample
  * regardless of the layer's severity (verified against the live API — see
  * W3's note below for where that almost, but does not quite, apply here).
  *
@@ -37,6 +39,25 @@ export interface SampleExpectation {
   severity?: 'MEDIUM' | 'HIGH';
   /** Rule names the Islamic layer should set aside. */
   setAside?: string[];
+  /**
+   * What must still count on the final verdict: core rules the layer did NOT
+   * set aside, and core network evidence codes (see `keptOnVerdict`). Checked
+   * as "at least these" — the engine may well count more.
+   */
+  kept?: string[];
+}
+
+/**
+ * Everything on a verdict a set-aside cannot have touched: the engine rules
+ * still on it (a layer's own rules carry a `source`), core network evidence
+ * codes, and "anomaly" when the anomaly detector flagged it.
+ */
+export function keptOnVerdict(risk: Risk): string[] {
+  const rules = (risk.triggered_rules ?? [])
+    .filter((rule) => !rule.source)
+    .map((rule) => rule.rule);
+  const network = (risk.network?.evidence ?? []).map((evidence) => evidence.code);
+  return [...rules, ...network, ...(risk.anomaly?.is_anomaly ? ['anomaly'] : [])];
 }
 
 export interface SampleScenario {
@@ -49,7 +70,7 @@ export interface SampleScenario {
 export interface Sample {
   id: string;
   label: string;
-  group: 'legitimate' | 'fraud' | 'warning';
+  group: 'legitimate' | 'fraud' | 'warning' | 'check';
   summary: string;
   expected: SampleExpectation;
   hasSetup: boolean;
@@ -196,6 +217,7 @@ function emptyIslamic(): TransactionFormValues['islamic'] {
     tenor: '',
     scheduled_amount: '',
     contract_start: '',
+    due_date: '',
     customer_iban: '',
     supplier_iban: '',
   };
@@ -296,7 +318,7 @@ function sampleL2(): Sample {
     label: 'L2 — Early settlement, own account',
     group: 'legitimate',
     summary:
-      'Ahmed settles his Murabaha early for 156,600, emptying his own account by design. Expect ORIGIN_ACCOUNT_DRAIN set aside and no alert.',
+      'Ahmed settles his Murabaha early for 156,600 from his own account — exactly the 36 instalments of 4,350 left from instalment 13 of 48 — emptying it by design. The schedule verifies the settlement: expect ORIGIN_ACCOUNT_DRAIN set aside and no alert.',
     expected: { alert: false, setAside: ['ORIGIN_ACCOUNT_DRAIN'] },
     hasSetup: false,
     generate: () => {
@@ -323,7 +345,11 @@ function sampleL2(): Sample {
           product: 'MURABAHA',
           event: 'EARLY_SETTLEMENT',
           contract_id: reference('MRB-AHMED'),
-          contract_start: isoDateOffset(-500),
+          // 4,350 x (48 - 13 + 1) = 156,600: what the schedule says is left.
+          instalment_no: 13,
+          tenor: 48,
+          scheduled_amount: '4350.00',
+          contract_start: isoDateOffset(-370),
           customer_iban: ahmed.iban,
         },
       });
@@ -343,7 +369,7 @@ function sampleL3(): Sample {
     label: 'L3 — Scheduled instalment, with history',
     group: 'legitimate',
     summary:
-      "Sara's 5,000 instalment matches the contract schedule, after two ordinary rent payments from the same account. Expect ROUND_AMOUNT_BURST set aside and no alert.",
+      "Sara's 5,000 instalment, due today, matches the contract schedule in amount and date, after two ordinary rent payments from the same account. Expect ROUND_AMOUNT_BURST set aside and no alert.",
     expected: { alert: false, setAside: ['ROUND_AMOUNT_BURST'] },
     hasSetup: true,
     generate: () => {
@@ -399,6 +425,7 @@ function sampleL3(): Sample {
           tenor: 40,
           scheduled_amount: '5000.00',
           contract_start: isoDateOffset(-300),
+          due_date: isoDateOffset(0),
           customer_iban: sara.iban,
         },
       });
@@ -1194,6 +1221,191 @@ function sampleW3(): Sample {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * False-alarm checks. The two set-asides (ORIGIN_ACCOUNT_DRAIN on an early
+ * settlement, ROUND_AMOUNT_BURST on a scheduled payment) remove only the core
+ * warning the contract verifiably explains. V1 and V2 carry the label without
+ * the verification, so the core warning stays; V3 is verified, so the drain
+ * is set aside — but the network evidence beside it is independent, stays,
+ * and still opens the alert.
+ * ------------------------------------------------------------------ */
+
+function settlementAccount(): Account {
+  return account({
+    bankCode: '070',
+    bic: 'ALITAEAD',
+    openedOffsetDays: -3000,
+    holder: { type: 'COMPANY', name: 'Al Ittihad Islamic Finance', refPrefix: 'AIIF' },
+  });
+}
+
+function sampleV1(): Sample {
+  return {
+    id: 'v1-settlement-short-of-schedule',
+    label: 'V1 — Settlement the schedule does not explain',
+    group: 'check',
+    summary:
+      'Layla settles 156,600 early from her own account, emptying it, but her contract shows 200,000 ' +
+      'still to pay (40 instalments of 5,000 left from instalment 9 of 48). The schedule does not ' +
+      'explain the drain, so the core warning stays: expect ORIGIN_ACCOUNT_DRAIN kept, nothing set ' +
+      'aside, and an alert.',
+    expected: { alert: true, kept: ['ORIGIN_ACCOUNT_DRAIN'] },
+    hasSetup: false,
+    generate: () => {
+      const layla = account({
+        bankCode: '033',
+        openedOffsetDays: -1300,
+        holder: { name: 'Layla Haddad', refPrefix: 'LAYLA' },
+      });
+      const final = txn({
+        refPrefix: 'DEMO-MRB-SETTLE-SHORT',
+        amount: '156600.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '156600.00',
+        receiverBalance: '2200000.00',
+        source: layla,
+        destination: settlementAccount(),
+        islamic: {
+          product: 'MURABAHA',
+          event: 'EARLY_SETTLEMENT',
+          contract_id: reference('MRB-LAYLA'),
+          instalment_no: 9,
+          tenor: 48,
+          scheduled_amount: '5000.00',
+          contract_start: isoDateOffset(-250),
+          customer_iban: layla.iban,
+        },
+      });
+      return noSetup(final);
+    },
+  };
+}
+
+function sampleV2(): Sample {
+  return {
+    id: 'v2-instalment-paid-months-early',
+    label: 'V2 — Instalment paid three months early',
+    group: 'check',
+    summary:
+      "Sara pays a 5,000 instalment that is not due for another 90 days, after two ordinary rent " +
+      'payments. The amount matches the schedule, the date does not, so the round-amount warning ' +
+      'stays: expect ROUND_AMOUNT_BURST kept, nothing set aside, and no alert.',
+    expected: { alert: false, kept: ['ROUND_AMOUNT_BURST'] },
+    hasSetup: true,
+    generate: () => {
+      const sara = account({
+        bankCode: '033',
+        openedOffsetDays: -1100,
+        holder: { name: 'Sara Al Mazrouei', refPrefix: 'SARA' },
+      });
+      const landlord = account({
+        bankCode: '090',
+        openedOffsetDays: -2000,
+        holder: { type: 'COMPANY', name: 'Al Waha Properties', refPrefix: 'WAHA' },
+      });
+      const setup = [
+        txn({
+          refPrefix: 'DEMO-RENT',
+          amount: '3200.00',
+          bookedOffsetSeconds: -2,
+          senderBalance: '48400.00',
+          receiverBalance: '640200.00',
+          source: sara,
+          destination: landlord,
+        }),
+        txn({
+          refPrefix: 'DEMO-RENT',
+          amount: '3200.00',
+          bookedOffsetSeconds: -1,
+          senderBalance: '45200.00',
+          receiverBalance: '643400.00',
+          source: sara,
+          destination: landlord,
+        }),
+      ];
+      const final = txn({
+        refPrefix: 'DEMO-MRB-INSTALMENT-EARLY',
+        amount: '5000.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '42000.00',
+        receiverBalance: '1250340.00',
+        source: sara,
+        destination: settlementAccount(),
+        islamic: {
+          product: 'MURABAHA',
+          event: 'INSTALMENT',
+          contract_id: reference('MRB-SARA'),
+          instalment_no: 13,
+          tenor: 40,
+          scheduled_amount: '5000.00',
+          contract_start: isoDateOffset(-300),
+          due_date: isoDateOffset(90),
+          customer_iban: sara.iban,
+        },
+      });
+      return { setup, final };
+    },
+  };
+}
+
+function sampleV3(): Sample {
+  return {
+    id: 'v3-verified-settlement-after-inflow',
+    label: 'V3 — Verified settlement right after a large inflow',
+    group: 'check',
+    summary:
+      "Ahmed's verified early settlement (156,600 = 36 x 4,350 left from instalment 13 of 48) leaves " +
+      'his own account seconds after a 150,000 transfer lands in it. The schedule explains the drain, ' +
+      'so ORIGIN_ACCOUNT_DRAIN is set aside — but the pass-through the network analyzer sees is ' +
+      'independent evidence, stays, and opens an alert on its own.',
+    expected: { alert: true, setAside: ['ORIGIN_ACCOUNT_DRAIN'], kept: ['RAPID_PASS_THROUGH'] },
+    hasSetup: true,
+    generate: () => {
+      const ahmed = account({
+        bankCode: '033',
+        openedOffsetDays: -1400,
+        holder: { name: 'Ahmed Al Qasimi', refPrefix: 'AHMED' },
+      });
+      const buyer = account({
+        bankCode: '061',
+        openedOffsetDays: -900,
+        holder: { name: 'Khalid Al Suwaidi', refPrefix: 'KHALID' },
+      });
+      const setup = [
+        txn({
+          refPrefix: 'DEMO-INFLOW',
+          amount: '150000.00',
+          bookedOffsetSeconds: -1,
+          senderBalance: '420000.00',
+          receiverBalance: '6600.00',
+          source: buyer,
+          destination: ahmed,
+        }),
+      ];
+      const final = txn({
+        refPrefix: 'DEMO-MRB-SETTLE-INFLOW',
+        amount: '156600.00',
+        bookedOffsetSeconds: 0,
+        senderBalance: '156600.00',
+        receiverBalance: '2200000.00',
+        source: ahmed,
+        destination: settlementAccount(),
+        islamic: {
+          product: 'MURABAHA',
+          event: 'EARLY_SETTLEMENT',
+          contract_id: reference('MRB-AHMED'),
+          instalment_no: 13,
+          tenor: 48,
+          scheduled_amount: '4350.00',
+          contract_start: isoDateOffset(-370),
+          customer_iban: ahmed.iban,
+        },
+      });
+      return { setup, final };
+    },
+  };
+}
+
 export const SAMPLES: readonly Sample[] = [
   sampleL1(),
   sampleL2(),
@@ -1213,6 +1425,9 @@ export const SAMPLES: readonly Sample[] = [
   sampleW1(),
   sampleW2(),
   sampleW3(),
+  sampleV1(),
+  sampleV2(),
+  sampleV3(),
 ];
 
 export const EMPTY_FORM: TransactionFormValues = {

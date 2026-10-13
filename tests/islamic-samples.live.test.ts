@@ -9,10 +9,10 @@ import {
   type TransactionFormValues,
 } from '@/api/schemas/transactions';
 import { buildTransactionPayload } from '@/features/transactions/payload';
-import { SAMPLES, type Sample } from '@/features/transactions/samples';
+import { keptOnVerdict, SAMPLES, type Sample } from '@/features/transactions/samples';
 
 /**
- * Proves every one of the eighteen Islamic samples against the LIVE API —
+ * Proves every one of the twenty-one Islamic samples against the LIVE API —
  * not a mock, not a fixture. Skipped unless LIVE_API is set, because it needs
  * a running backend and writes real transactions into its database.
  *
@@ -170,13 +170,16 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
         // THIRD_PARTY_REPAYMENT), so the first added rule's severity is the
         // one to compare — there is only ever one when `expected.severity` is set.
         const gotSeverity = findings?.added[0]?.severity ?? null;
+        const kept = keptOnVerdict(risk);
+        const expectedKept = sample.expected.kept ?? [];
 
         // eslint-disable-next-line no-console -- the point of this suite is a readable record of the run.
         console.log(
           `${sample.id}: expected alert=${sample.expected.alert} added=[${expectedAdded.join(', ')}]` +
             `${sample.expected.severity ? ` (${sample.expected.severity})` : ''} setAside=[${expectedSetAside.join(', ')}] ` +
             `| got score=${score} alert=${gotAlert} added=[${added.join(', ')}]` +
-            `${gotSeverity ? ` (${gotSeverity})` : ''} setAside=[${setAside.join(', ')}]`,
+            `${gotSeverity ? ` (${gotSeverity})` : ''} setAside=[${setAside.join(', ')}]` +
+            (expectedKept.length ? ` | kept expected=[${expectedKept.join(', ')}] got=[${kept.join(', ')}]` : ''),
         );
 
         expect(gotAlert, 'alert').toBe(sample.expected.alert);
@@ -184,6 +187,15 @@ describe.skipIf(!LIVE_API)('Islamic samples against the live API', () => {
         expect(setAside, 'rules the Islamic layer set aside').toEqual(expectedSetAside);
         if (sample.expected.severity) {
           expect(gotSeverity, 'severity of the added rule').toBe(sample.expected.severity);
+        }
+        // Whatever a set-aside could not touch must still be on the verdict.
+        expect(kept, 'still counted on the verdict').toEqual(expect.arrayContaining(expectedKept));
+        if (setAside.length > 0) {
+          // And the findings record it beside the set-aside.
+          const recorded = findings?.kept;
+          expect(recorded, 'findings.kept beside a set-aside').toBeTruthy();
+          const network = (risk.network?.evidence ?? []).map((evidence) => evidence.code);
+          expect(recorded?.network_evidence ?? [], 'findings.kept network evidence').toEqual(network);
         }
       },
       60_000,

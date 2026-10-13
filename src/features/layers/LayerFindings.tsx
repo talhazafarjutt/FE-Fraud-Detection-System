@@ -1,4 +1,8 @@
-import type { LayerFinding, LayerFindings as Findings } from '@/api/schemas/layers';
+import type {
+  KeptEvidence,
+  LayerFinding,
+  LayerFindings as Findings,
+} from '@/api/schemas/layers';
 import type { LayerProduct } from '@/api/schemas/meta';
 import { cx } from '@/components/primitives';
 import { formatRiskScore } from '@/lib/risk';
@@ -95,9 +99,38 @@ function LayerBlock({
               </div>
             </li>
           ))}
+          {setAside.length > 0 ? <StillCounted kept={finding.kept} /> : null}
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * Beneath the set-asides: what the score still counts. A set-aside removes
+ * only the named core rule, so network evidence (which opens an alert on its
+ * own) and the anomaly flag are listed from the recorded `kept`; older
+ * findings carry none, and then only the rule of thumb is shown.
+ */
+function StillCounted({ kept }: { kept: KeptEvidence | null | undefined }) {
+  const parts: string[] = [];
+  if (kept && kept.network_evidence.length > 0) {
+    parts.push(`network evidence ${kept.network_evidence.join(', ')}`);
+  }
+  if (kept?.anomaly) parts.push('anomaly');
+  return (
+    <li className="space-y-1 px-5 py-4 text-[14px]">
+      {kept ? (
+        <p className="text-ink">
+          <span className="mono-label mr-2 text-ink-3">Still counted</span>
+          {parts.length > 0 ? parts.join(', ') : 'no network or anomaly evidence on this score'}
+        </p>
+      ) : null}
+      <p className="text-ink-3">
+        Set-asides remove only the named core rule; network, anomaly and entity evidence always
+        count.
+      </p>
+    </li>
   );
 }
 

@@ -35,6 +35,7 @@ const ISLAMIC_METADATA_FIELD: Record<string, IslamicContractFieldKey | 'product'
   tenor: 'tenor',
   scheduled_amount: 'scheduled_amount',
   contract_start: 'contract_start',
+  due_date: 'due_date',
   customer_iban: 'customer_iban',
   supplier_iban: 'supplier_iban',
 };
@@ -223,6 +224,7 @@ export default function TransactionsPage() {
   const legitimateSamples = SAMPLES.filter((sample) => sample.group === 'legitimate');
   const fraudSamples = SAMPLES.filter((sample) => sample.group === 'fraud');
   const warningSamples = SAMPLES.filter((sample) => sample.group === 'warning');
+  const checkSamples = SAMPLES.filter((sample) => sample.group === 'check');
 
   return (
     <div className="space-y-10">
@@ -269,6 +271,13 @@ export default function TransactionsPage() {
                 </option>
               ))}
             </optgroup>
+            <optgroup label="False-alarm checks">
+              {checkSamples.map((sample) => (
+                <option key={sample.id} value={sample.id}>
+                  {sample.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
       </header>
@@ -290,6 +299,7 @@ export default function TransactionsPage() {
               }.`
             : ''}
           {expected.setAside?.length ? ` Set aside: ${expected.setAside.join(', ')}.` : ''}
+          {expected.kept?.length ? ` Still counted: ${expected.kept.join(', ')}.` : ''}
         </p>
       ) : null}
 

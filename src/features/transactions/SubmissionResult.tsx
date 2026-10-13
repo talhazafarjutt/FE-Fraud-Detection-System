@@ -6,7 +6,7 @@ import { formatRiskScore, probabilityToScore } from '@/lib/risk';
 import { shortId, titleCase } from '@/lib/format';
 import { LayerFindings } from '@/features/layers/LayerFindings';
 import { useLayers } from '@/features/layers/useMeta';
-import type { SampleExpectation } from './samples';
+import { keptOnVerdict, type SampleExpectation } from './samples';
 import { useScorePoller } from './useScorePoller';
 
 export interface Submission {
@@ -221,15 +221,19 @@ function ExpectedVsGot({
   const gotAdded = findings?.added.map((rule) => rule.rule) ?? [];
   const gotSetAside = findings?.set_aside.map((rule) => rule.rule) ?? [];
   const gotSeverity = findings?.added[0]?.severity ?? null;
+  const gotKept = keptOnVerdict(risk);
 
   const sameSet = (a: string[], b: string[]) =>
     a.length === b.length && a.every((rule) => b.includes(rule));
   const severityMatches = !expected.severity || gotSeverity === expected.severity;
+  // "At least these still count": the engine may count more than predicted.
+  const keptMatches = (expected.kept ?? []).every((name) => gotKept.includes(name));
   const matches =
     expected.alert === gotAlert &&
     sameSet(expected.added ?? [], gotAdded) &&
     sameSet(expected.setAside ?? [], gotSetAside) &&
-    severityMatches;
+    severityMatches &&
+    keptMatches;
 
   return (
     <div className={`border px-4 py-3 text-[14px] ${matches ? 'border-sage' : 'border-carmine'}`}>
@@ -243,6 +247,7 @@ function ExpectedVsGot({
             }`
           : ''}
         {expected.setAside?.length ? ` · set aside ${expected.setAside.join(', ')}` : ''}
+        {expected.kept?.length ? ` · still counted ${expected.kept.join(', ')}` : ''}
       </p>
       <p className="text-ink-2">
         <span className="font-mono text-[12px] uppercase tracking-tag text-ink-3">Got</span>{' '}
@@ -251,6 +256,7 @@ function ExpectedVsGot({
           ? ` · added ${gotAdded.join(', ')}${gotSeverity ? ` (${severityWord(gotSeverity)})` : ''}`
           : ''}
         {gotSetAside.length ? ` · set aside ${gotSetAside.join(', ')}` : ''}
+        {gotKept.length ? ` · still counted ${gotKept.join(', ')}` : ''}
       </p>
     </div>
   );

@@ -44,6 +44,23 @@ export const setAsideSchema = z
   .passthrough();
 export type SetAside = z.infer<typeof setAsideSchema>;
 
+/**
+ * What a set-aside could not touch, recorded beside it: the network evidence
+ * codes still on the verdict (any of them opens an alert) and the anomaly
+ * flag. Present only when the layer set something aside; older findings
+ * have none.
+ */
+export const keptEvidenceSchema = z
+  .object({
+    network_evidence: z
+      .array(z.string())
+      .nullish()
+      .transform((codes) => codes ?? []),
+    anomaly: z.boolean().nullish().transform((flag) => flag ?? false),
+  })
+  .passthrough();
+export type KeptEvidence = z.infer<typeof keptEvidenceSchema>;
+
 export const layerFindingSchema = z
   .object({
     facts: layerFactsSchema.nullish().transform((facts): LayerFacts => facts ?? {}),
@@ -57,6 +74,8 @@ export const layerFindingSchema = z
       .transform((rules) => rules ?? []),
     score_before: z.number().nullish(),
     score_after: z.number().nullish(),
+    // A malformed `kept` is dropped, not allowed to cost the whole entry.
+    kept: keptEvidenceSchema.nullish().catch(null),
   })
   .passthrough();
 export type LayerFinding = z.infer<typeof layerFindingSchema>;
@@ -76,7 +95,7 @@ function byLayer<T>(entry: z.ZodType<T, z.ZodTypeDef, unknown>) {
   });
 }
 
-/** `{"<layer>": {facts, added, set_aside, score_before, score_after}}`, or null. */
+/** `{"<layer>": {facts, added, set_aside, score_before, score_after, kept?}}`, or null. */
 export const layerFindingsSchema = byLayer(layerFindingSchema);
 
 /** `{"<layer>": facts}`, or null. */

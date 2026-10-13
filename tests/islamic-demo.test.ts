@@ -84,7 +84,10 @@ describe('demo mode with the Islamic layer on', () => {
     const score = riskSchema.parse(await (await get(token, `/v1/transactions/${id}/score`)).json());
     const finding = score.layer_findings?.['islamic'];
     expect(finding?.set_aside[0]?.rule).toBe('ORIGIN_ACCOUNT_DRAIN');
-    expect(finding?.set_aside[0]?.reason).toMatch(/early settlement of contract MRB-2026-0187/);
+    expect(finding?.set_aside[0]?.reason).toMatch(
+      /^Early settlement of contract MRB-2026-0187 matches the 184,250.00 left on its schedule/,
+    );
+    expect(finding?.kept).toEqual({ network_evidence: [], anomaly: false });
     expect(score.risk_score).toBeLessThan(RISK_THRESHOLDS.HIGH);
 
     transactionSchema.parse(await (await get(token, `/v1/transactions/${id}`)).json());

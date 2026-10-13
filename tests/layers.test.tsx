@@ -46,6 +46,7 @@ const PRODUCTS = META_ON.products;
 const REPAYMENT_FACTS = WIRE_ALERT_DETAIL_ISLAMIC.layer_facts.islamic;
 const CHIP = 'Murabaha · instalment 23/48';
 const SETTLEMENT = layerFindingsSchema.parse(WIRE_SCORE_SETTLEMENT.layer_findings);
+const SETTLEMENT_RAW = WIRE_SCORE_SETTLEMENT.layer_findings.islamic;
 const REPAYMENT = layerFindingsSchema.parse(WIRE_ALERT_DETAIL_ISLAMIC.layer_findings);
 
 function json(body: unknown, status = 200) {
@@ -171,6 +172,22 @@ describe('layer contract (live captures)', () => {
     expect(layerFindingsSchema.parse({ islamic: { facts: null } })?.['islamic']?.added).toEqual([]);
   });
 
+  it('reads what a set-aside kept, and treats older findings without it as none recorded', () => {
+    const withKept = layerFindingsSchema.parse({
+      islamic: { ...SETTLEMENT_RAW, kept: { network_evidence: ['RAPID_PASS_THROUGH'], anomaly: true } },
+    });
+    expect(withKept?.['islamic']?.kept).toEqual({
+      network_evidence: ['RAPID_PASS_THROUGH'],
+      anomaly: true,
+    });
+    // The captured settlement predates `kept`.
+    expect(SETTLEMENT?.['islamic']?.kept).toBeUndefined();
+    // A malformed `kept` is dropped, not allowed to cost the whole entry.
+    const malformed = layerFindingsSchema.parse({ islamic: { ...SETTLEMENT_RAW, kept: 'all of it' } });
+    expect(malformed?.['islamic']?.kept).toBeNull();
+    expect(malformed?.['islamic']?.set_aside).toHaveLength(1);
+  });
+
   it('carries facts on case members and findings on the frozen verdict', () => {
     const detail = caseDetailSchema.parse(WIRE_CASE_ISLAMIC);
     expect(detail.alerts?.[0]?.layer_facts?.['islamic']?.event).toBe('CLAIM');
@@ -258,6 +275,40 @@ describe('evidence', () => {
       ),
     ).toBeInTheDocument();
     expect(within(block).getByTitle(/before and after/)).toHaveTextContent(/76\s*→\s*to\s*66$/);
+    // Captured before findings recorded `kept`: the rule of thumb, no list.
+    expect(within(block).queryByText('Still counted')).toBeNull();
+    expect(
+      within(block).getByText(
+        'Set-asides remove only the named core rule; network, anomaly and entity evidence always count.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('lists what still counts beneath a set-aside', () => {
+    const findings = layerFindingsSchema.parse({
+      islamic: { ...SETTLEMENT_RAW, kept: { network_evidence: ['RAPID_PASS_THROUGH'], anomaly: true } },
+    });
+    renderWithProviders(<LayerFindings findings={findings} products={PRODUCTS} />);
+    const block = screen.getByRole('region', { name: 'Islamic layer' });
+    const still = within(block).getByText('Still counted').parentElement!;
+    expect(still).toHaveTextContent(/^Still counted\s*network evidence RAPID_PASS_THROUGH, anomaly$/);
+    expect(
+      within(block).getByText(/^Set-asides remove only the named core rule/),
+    ).toBeInTheDocument();
+  });
+
+  it('says so when nothing else is on the verdict', () => {
+    const findings = layerFindingsSchema.parse({
+      islamic: { ...SETTLEMENT_RAW, kept: { network_evidence: [], anomaly: false } },
+    });
+    renderWithProviders(<LayerFindings findings={findings} products={PRODUCTS} />);
+    const still = screen.getByText('Still counted').parentElement!;
+    expect(still).toHaveTextContent('no network or anomaly evidence on this score');
+  });
+
+  it('shows no set-aside footer when nothing was set aside', () => {
+    renderWithProviders(<LayerFindings findings={REPAYMENT} products={PRODUCTS} />);
+    expect(screen.queryByText(/^Set-asides remove only/)).toBeNull();
   });
 
   it('renders nothing without findings', () => {
